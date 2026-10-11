@@ -870,3 +870,37 @@ test("requestChunkedPlan: outline gagal -> melempar (ditangkap jadi fallback off
   const stub = async () => { throw new Error("OpenAI tidak merespons dalam 180s: completions"); };
   await assert.rejects(() => requestChunkedPlan(chunkTestInput, null, stub), /tidak merespons/);
 });
+
+test("requestChunkScenes: toleransi 5% — segmen 97% dari minimum diterima tanpa revisi", async () => {
+  const chapters = normalizeChapterPlan(null, chunkTestInput);
+  const segments = buildSceneSegments(chunkTestInput, chapters);
+  const seg = segments[0].filter((s) => s.sceneType !== "reaction");
+  const targetMin = seg.reduce((n, s) => n + s.wordMin, 0);
+  const nearWords = Math.ceil(targetMin * 0.97);
+  let calls = 0;
+  const stub = async () => {
+    calls++;
+    return { scenes: seg.map((spec) => stubScene(spec.index, spec.sceneType, spec.chapter, spec.sceneType === "reaction" ? 0 : Math.ceil(nearWords / seg.filter((x) => x.sceneType !== "reaction").length))) };
+  };
+  const scenes = await requestChunkScenes(chunkTestInput, null, seg, "", stub);
+  assert.equal(calls, 1, "tidak perlu revisi untuk selisih <5%");
+  assert.equal(scenes.length, seg.length);
+});
+
+test("requestChunkScenes: respons malformed -> revisi dengan penekanan format JSON", async () => {
+  const chapters = normalizeChapterPlan(null, chunkTestInput);
+  const segments = buildSceneSegments(chunkTestInput, chapters);
+  const seg = segments[0].filter((s) => s.sceneType !== "reaction");
+  const prompts = [];
+  let calls = 0;
+  const stub = async (prompt) => {
+    calls++;
+    prompts.push(prompt);
+    if (calls === 1) return { scenes: [] }; // malformed: tidak ada scene
+    return { scenes: seg.map((spec) => stubScene(spec.index, spec.sceneType, spec.chapter, spec.wordMin + 5)) };
+  };
+  const scenes = await requestChunkScenes(chunkTestInput, null, seg, "", stub);
+  assert.equal(calls, 2);
+  assert.ok(prompts[1].includes("JSON valid SAJA"), "revisi menekankan format JSON");
+  assert.equal(scenes.length, seg.length);
+});

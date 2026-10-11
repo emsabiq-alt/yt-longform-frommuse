@@ -724,15 +724,21 @@ export function condenseSegmentContext(segScenes, maxChars = 900) {
  */
 export async function requestChunkScenes(input, wiki, segment, prevContext, requestFn = requestKnowledgeJson, onPrompt = null) {
   const segLabel = `scene ${segment[0].index}-${segment[segment.length - 1].index}`;
-  const minWords = segment.reduce((sum, spec) => sum + spec.wordMin, 0);
+  const targetMinWords = segment.reduce((sum, spec) => sum + spec.wordMin, 0);
+  // Toleransi 5%: AI sering mendarat 1-5 kata di bawah batas bawah — jangan
+  // bakar satu percobaan revisi (timeout 180 detik) hanya karena selisih segitu.
+  const acceptMinWords = Math.floor(targetMinWords * 0.95);
   let lastWords = 0;
   let lastError = null;
+  let lastFailureKind = "";
   for (let attempt = 1; attempt <= MAX_NARRATION_REVISION_ATTEMPTS; attempt++) {
     try {
       const revisionNote = attempt > 1 ? [
         "",
         "REVISI WAJIB:",
-        `Percobaan revisi ${attempt}/${MAX_NARRATION_REVISION_ATTEMPTS}. Segmen sebelumnya hanya ${lastWords} kata (minimal ${minWords} kata narasi).`,
+        lastFailureKind === "respons"
+          ? `Respons sebelumnya tidak valid (${lastError?.message || "format salah"}). Kembalikan JSON valid SAJA: {scenes:[...]} berisi SEMUA scene dalam daftar, masing-masing dengan narration lengkap.`
+          : `Percobaan revisi ${attempt}/${MAX_NARRATION_REVISION_ATTEMPTS}. Segmen sebelumnya hanya ${lastWords} kata (minimal ${targetMinWords} kata narasi).`,
         "Tulis ulang segmen ini lebih panjang. Setiap scene image/summary WAJIB mencapai batas bawah kata yang diminta. Jangan mengembalikan segmen sebelum minimum tercapai."
       ].join("\n") : "";
       const prompt = buildChunkPrompt(input, wiki, segment, prevContext, revisionNote);
@@ -752,8 +758,9 @@ export async function requestChunkScenes(input, wiki, segment, prevContext, requ
         if (spec.sceneType === "reaction") return sum;
         return sum + String(byIndex.get(spec.index)?.narration || "").split(/\s+/).filter(Boolean).length;
       }, 0);
-      if (lastWords < minWords) {
-        console.warn(`[Story Longform] Segmen ${segLabel} terlalu pendek (${lastWords} < ${minWords} kata), revisi ${attempt}/${MAX_NARRATION_REVISION_ATTEMPTS}...`);
+      if (lastWords < acceptMinWords) {
+        lastFailureKind = "pendek";
+        console.warn(`[Story Longform] Segmen ${segLabel} terlalu pendek (${lastWords} < ${acceptMinWords} kata), revisi ${attempt}/${MAX_NARRATION_REVISION_ATTEMPTS}...`);
         continue;
       }
       return segment.map((spec) => ({
@@ -764,6 +771,7 @@ export async function requestChunkScenes(input, wiki, segment, prevContext, requ
       }));
     } catch (error) {
       lastError = error;
+      lastFailureKind = "respons";
       console.warn(`[Story Longform] Segmen ${segLabel} percobaan ${attempt}/${MAX_NARRATION_REVISION_ATTEMPTS} gagal: ${error.message}`);
     }
   }
