@@ -7,6 +7,7 @@ import { estimateTtsUsd } from "./cost.js";
 import { generateElevenLabsSpeech } from "./elevenlabs.js";
 import { generateGroqSpeech } from "./groq.js";
 import { generatePiperSpeech } from "./piper-tts.js";
+import { generateSupertonicSpeech } from "./supertonic-tts.js";
 import { generateOpenAiSpeech, generateSceneGridImage, generateSceneImage, normalizeImageQuality, transcribeSpeechSegments } from "./openai.js";
 import {
   fetchPexelsClipForScene,
@@ -33,12 +34,12 @@ import { reportProgress } from "./progress.js";
 const LANDSCAPE_SIZE = "1536x1024";
 
 /**
- * FROMMUSE: resolusi provider TTS. Nilai valid: "openai" | "elevenlabs" | "groq" | "piper".
+ * FROMMUSE: resolusi provider TTS. Nilai valid: "openai" | "elevenlabs" | "groq" | "piper" | "supertonic".
  * Selain itu dianggap "openai" (kompatibel ke belakang).
  */
 function resolveTtsProvider(raw) {
   const p = String(raw || "openai").toLowerCase();
-  if (p === "elevenlabs" || p === "groq" || p === "piper") return p;
+  if (p === "elevenlabs" || p === "groq" || p === "piper" || p === "supertonic") return p;
   return "openai";
 }
 
@@ -47,6 +48,7 @@ function ttsVoiceFor(provider, overrideVoice) {
   if (provider === "groq") return config.groq.ttsVoice;
   if (provider === "elevenlabs") return config.elevenlabs.voiceId;
   if (provider === "piper") return config.piper.voice;
+  if (provider === "supertonic") return config.supertonic.voice;
   return config.openai.ttsVoice;
 }
 
@@ -67,22 +69,27 @@ async function generateTtsForProvider(ttsProvider, { itemId, text, voice, instru
   if (ttsProvider === "piper") {
     return generatePiperSpeech({ itemId, text, voice, filenameSuffix });
   }
+  if (ttsProvider === "supertonic") {
+    return generateSupertonicSpeech({ itemId, text, voice, filenameSuffix });
+  }
   return generateOpenAiSpeech({ itemId, text, voice, instructions, filenameSuffix });
 }
 
 // FROMMUSE: urutan coba TTS — provider pilihan dulu, lalu provider lain
-// yang API key-nya tersedia. Piper selalu tersedia (gratis, tanpa key,
-// jalan lokal di CPU) dan fasih Bahasa Indonesia, jadi prioritas kedua.
+// yang API key-nya tersedia. Supertonic (suara film cinematic) dan Piper
+// selalu tersedia (gratis, tanpa key, jalan lokal di CPU) dan fasih
+// Bahasa Indonesia — jadi prioritas setelah provider pilihan.
 // "Fallback ke yg bisa aja."
 function ttsFallbackChain(requested) {
   const hasKey = {
     openai: Boolean(config.openai.apiKey),
     elevenlabs: Boolean(config.elevenlabs.apiKey),
     groq: Boolean(config.groq.apiKey),
-    piper: true
+    piper: true,
+    supertonic: true
   };
   const seen = new Set();
-  return [requested, "piper", "openai", "elevenlabs", "groq"].filter((p) => {
+  return [requested, "supertonic", "piper", "openai", "elevenlabs", "groq"].filter((p) => {
     if (seen.has(p) || !hasKey[p]) return false;
     seen.add(p);
     return true;

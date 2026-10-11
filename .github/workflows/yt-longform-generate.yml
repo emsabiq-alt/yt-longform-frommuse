@@ -225,6 +225,30 @@ jobs:
             piper-voices
           key: piper-tts-id_ID-news_tts-medium-v1
 
+      - name: Restore Supertonic TTS cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/supertonic3
+          key: supertonic-m2-v1
+
+      - name: Install Supertonic TTS (suara film cinematic)
+        run: |
+          pip install -q supertonic soundfile
+          # Unduh model butuh NO_PROXY bersih (bug parser httpx)
+          env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
+            python3 scripts/supertonic_synth.py \
+            --text "tes" --out /tmp/supertonic-warmup.wav --voice M2 || true
+          ls ~/.cache/supertonic3 2>/dev/null | head -3
+
+      - name: Save Supertonic TTS cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/supertonic3
+          key: supertonic-m2-v1
+
       - name: Validate source
         run: npm run check
 

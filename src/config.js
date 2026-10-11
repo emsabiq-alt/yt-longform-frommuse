@@ -149,6 +149,10 @@ export const config = {
     voiceDir: clean(process.env.PIPER_VOICE_DIR || ""),
     timeoutMs: Math.max(15000, numberEnv("PIPER_TIMEOUT_MS", 120000))
   },
+  supertonic: {
+    voice: clean(process.env.SUPERTONIC_VOICE || "M2"),
+    python: clean(process.env.SUPERTONIC_PYTHON || "python3"),
+  },
   deepseek: {
     apiKey: process.env.DEEPSEEK_API_KEY || "",
     baseUrl: trimSlash(process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com"),
