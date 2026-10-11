@@ -145,6 +145,8 @@ export const config = {
   },
   piper: {
     voice: clean(process.env.PIPER_VOICE || "id_ID-news_tts-medium"),
+    python: clean(process.env.PIPER_PYTHON || "python3"),
+    voiceDir: clean(process.env.PIPER_VOICE_DIR || ""),
     timeoutMs: Math.max(15000, numberEnv("PIPER_TIMEOUT_MS", 120000))
   },
   deepseek: {

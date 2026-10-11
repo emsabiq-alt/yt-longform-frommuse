@@ -13,8 +13,13 @@ import path from "node:path";
 import fs from "node:fs";
 import { execFile } from "node:child_process";
 import { config } from "./config.js";
-const PIPER_BIN = `${process.env.HOME}/workspace/cinematic-venv/bin/python`;
-const VOICE_DIR = `${process.env.HOME}/workspace/piper-voices`;
+// Lokasi via config (env): PIPER_PYTHON default "python3",
+// PIPER_VOICE_DIR default "./piper-voices".
+// Di VM ini .env mengarah ke venv cinematic + ~/workspace/piper-voices;
+// di GitHub Actions runner memakai default + cache.
+const PIPER_BIN = config.piper?.python || "python3";
+const VOICE_DIR =
+  config.piper?.voiceDir || path.join(process.cwd(), "piper-voices");
 const GTTS_URL = "https://translate.google.com/translate_tts";
 const MAX_CHUNK = 180;
 

@@ -29,3 +29,6 @@ graphify-out/
 
 # AI agent config (platform-specific, di-generate oleh graphify install)
 .agents/
+
+# Model suara Piper (63MB, diunduh saat setup)
+piper-voices/

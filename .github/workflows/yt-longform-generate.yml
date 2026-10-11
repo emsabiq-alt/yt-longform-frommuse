@@ -196,6 +196,35 @@ jobs:
       - name: Install dependencies
         run: npm ci --no-audit --fund=false
 
+      - name: Restore Piper TTS cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/pip
+            piper-voices
+          key: piper-tts-id_ID-news_tts-medium-v1
+
+      - name: Install Piper TTS (suara Indonesia, gratis)
+        run: |
+          pip install -q piper-tts
+          mkdir -p piper-voices
+          if [ ! -f piper-voices/id_ID-news_tts-medium.onnx ]; then
+            curl -sSL -o piper-voices/id_ID-news_tts-medium.onnx \
+              "https://huggingface.co/rhasspy/piper-voices/resolve/main/id/id_ID/news_tts/medium/id_ID-news_tts-medium.onnx"
+            curl -sSL -o piper-voices/id_ID-news_tts-medium.onnx.json \
+              "https://huggingface.co/rhasspy/piper-voices/resolve/main/id/id_ID/news_tts/medium/id_ID-news_tts-medium.onnx.json"
+          fi
+          ls -lh piper-voices/
+
+      - name: Save Piper TTS cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/pip
+            piper-voices
+          key: piper-tts-id_ID-news_tts-medium-v1
+
       - name: Validate source
         run: npm run check
 
