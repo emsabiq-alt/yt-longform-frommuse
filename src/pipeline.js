@@ -6,6 +6,7 @@ import { config, paths } from "./config.js";
 import { estimateTtsUsd } from "./cost.js";
 import { generateElevenLabsSpeech } from "./elevenlabs.js";
 import { generateGroqSpeech } from "./groq.js";
+import { generateEdgeSpeech } from "./edge-tts.js";
 import { generateOpenAiSpeech, generateSceneGridImage, generateSceneImage, normalizeImageQuality, transcribeSpeechSegments } from "./openai.js";
 import {
   fetchPexelsClipForScene,
@@ -32,12 +33,12 @@ import { reportProgress } from "./progress.js";
 const LANDSCAPE_SIZE = "1536x1024";
 
 /**
- * FROMMUSE: resolusi provider TTS. Nilai valid: "openai" | "elevenlabs" | "groq".
+ * FROMMUSE: resolusi provider TTS. Nilai valid: "openai" | "elevenlabs" | "groq" | "edge".
  * Selain itu dianggap "openai" (kompatibel ke belakang).
  */
 function resolveTtsProvider(raw) {
   const p = String(raw || "openai").toLowerCase();
-  if (p === "elevenlabs" || p === "groq") return p;
+  if (p === "elevenlabs" || p === "groq" || p === "edge") return p;
   return "openai";
 }
 
@@ -45,6 +46,7 @@ function ttsVoiceFor(provider, overrideVoice) {
   if (overrideVoice) return overrideVoice;
   if (provider === "groq") return config.groq.ttsVoice;
   if (provider === "elevenlabs") return config.elevenlabs.voiceId;
+  if (provider === "edge") return config.edge.voice;
   return config.openai.ttsVoice;
 }
 
@@ -62,19 +64,24 @@ async function generateTtsForProvider(ttsProvider, { itemId, text, voice, instru
   if (ttsProvider === "groq") {
     return generateGroqSpeech({ itemId, text, voice, filenameSuffix });
   }
+  if (ttsProvider === "edge") {
+    return generateEdgeSpeech({ itemId, text, voice, filenameSuffix });
+  }
   return generateOpenAiSpeech({ itemId, text, voice, instructions, filenameSuffix });
 }
 
 // FROMMUSE: urutan coba TTS — provider pilihan dulu, lalu provider lain
-// yang API key-nya tersedia. "Fallback ke yg bisa aja."
+// yang API key-nya tersedia. Edge TTS selalu tersedia (gratis, tanpa key)
+// dan fasih Bahasa Indonesia, jadi jadi prioritas kedua. "Fallback ke yg bisa aja."
 function ttsFallbackChain(requested) {
   const hasKey = {
     openai: Boolean(config.openai.apiKey),
     elevenlabs: Boolean(config.elevenlabs.apiKey),
-    groq: Boolean(config.groq.apiKey)
+    groq: Boolean(config.groq.apiKey),
+    edge: true
   };
   const seen = new Set();
-  return [requested, "openai", "elevenlabs", "groq"].filter((p) => {
+  return [requested, "edge", "openai", "elevenlabs", "groq"].filter((p) => {
     if (seen.has(p) || !hasKey[p]) return false;
     seen.add(p);
     return true;

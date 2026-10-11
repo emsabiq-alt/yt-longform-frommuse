@@ -143,6 +143,12 @@ export const config = {
     ttsVoice: clean(process.env.GROQ_TTS_VOICE || "troy"),
     ttsSpeed: Math.min(2, Math.max(0.5, numberEnv("GROQ_TTS_SPEED", 1.0)))
   },
+  edge: {
+    voice: clean(process.env.EDGE_TTS_VOICE || "id-ID-ArdiNeural"),
+    rate: clean(process.env.EDGE_TTS_RATE || "+0%"),
+    pitch: clean(process.env.EDGE_TTS_PITCH || "+0Hz"),
+    timeoutMs: Math.max(15000, numberEnv("EDGE_TTS_TIMEOUT_MS", 60000))
+  },
   deepseek: {
     apiKey: process.env.DEEPSEEK_API_KEY || "",
     baseUrl: trimSlash(process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com"),
