@@ -1,0 +1,37 @@
+name: YT Organize Playlists
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  organize-playlists:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      YOUTUBE_UPLOAD_ENABLED: "true"
+      YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+      YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+      YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+      YOUTUBE_PLAYLISTS: ${{ secrets.YOUTUBE_PLAYLISTS || '' }}
+      YOUTUBE_DEFAULT_PLAYLIST_ID: ${{ secrets.YOUTUBE_DEFAULT_PLAYLIST_ID || '' }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || '' }}
+      OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL || 'https://api.openai.com/v1' }}
+      STORY_MODEL: ${{ secrets.STORY_MODEL || 'gpt-4.1-mini' }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --no-audit --fund=false
+
+      - name: Organize all videos into playlists
+        run: npm run organize:playlists

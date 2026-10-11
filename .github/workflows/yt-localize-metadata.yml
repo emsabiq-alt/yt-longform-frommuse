@@ -1,0 +1,51 @@
+name: YT Localize Metadata
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_id:
+        description: Existing YouTube video ID to localize
+        required: true
+        type: string
+      languages:
+        description: Comma-separated language codes
+        required: false
+        default: en,es,pt-BR,hi,ar,fr,de,ja,ko,zh-CN,ru,it,tr,vi,th
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  localize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      YOUTUBE_UPLOAD_ENABLED: "true"
+      YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+      YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+      YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+      YOUTUBE_DEFAULT_LANGUAGE: ${{ secrets.YOUTUBE_DEFAULT_LANGUAGE || 'id' }}
+      YOUTUBE_DEFAULT_AUDIO_LANGUAGE: ${{ secrets.YOUTUBE_DEFAULT_AUDIO_LANGUAGE || 'id' }}
+      YOUTUBE_LOCALIZATION_ENABLED: "true"
+      YOUTUBE_LOCALIZATION_LANGUAGES: ${{ github.event.inputs.languages || 'en,es,pt-BR,hi,ar,fr,de,ja,ko,zh-CN,ru,it,tr,vi,th' }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY || secrets.deepseek_api_key }}
+      DEEPSEEK_BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL || 'https://api.deepseek.com' }}
+      DEEPSEEK_MODEL: ${{ secrets.DEEPSEEK_MODEL || 'deepseek-chat' }}
+      VIDEO_ID: ${{ github.event.inputs.video_id }}
+      LANGUAGES: ${{ github.event.inputs.languages || 'en,es,pt-BR,hi,ar,fr,de,ja,ko,zh-CN,ru,it,tr,vi,th' }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --no-audit --fund=false
+
+      - name: Translate and update YouTube metadata
+        run: npm run localize:youtube -- --video-id "$VIDEO_ID" --languages "$LANGUAGES"

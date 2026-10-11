@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="id" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0a0c10" />
+  <title>BanyakTau Studio</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='15' fill='%234f46e5'/%3E%3Cpath d='M26 20l20 12-20 12z' fill='%23fff'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <!-- LOGIN -->
+  <section id="authOverlay" class="auth active">
+    <div class="auth-bg"></div>
+    <form id="authForm" class="auth-card">
+      <div class="auth-logo">
+        <svg viewBox="0 0 36 36" fill="none"><rect width="36" height="36" rx="10" fill="#4f46e5"/><path d="M14 11l14 7-14 7V11z" fill="#fff"/></svg>
+      </div>
+      <div class="auth-copy">
+        <h1>BanyakTau Studio</h1>
+        <p>Dashboard produksi video YouTube otomatis</p>
+      </div>
+      <label class="field">
+        <span>PIN Akses</span>
+        <input id="authPin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="••••••" />
+      </label>
+      <button class="btn primary block" type="submit">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10h14M10 3l7 7-7 7"/></svg>
+        Masuk
+      </button>
+      <p id="authError" class="form-error"></p>
+    </form>
+  </section>
+
+  <!-- APP SHELL -->
+  <main id="app" class="shell hidden">
+
+    <!-- SIDEBAR -->
+    <aside id="sidebar" class="sidebar">
+      <div class="side-brand">
+        <svg viewBox="0 0 36 36" fill="none"><rect width="36" height="36" rx="10" fill="#4f46e5"/><path d="M14 11l14 7-14 7V11z" fill="#fff"/></svg>
+        <div class="brand-text"><b>BanyakTau</b><small>Studio</small></div>
+      </div>
+
+      <nav class="side-nav">
+        <button class="nav-item active" data-view="overview">
+          <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11h7V2H2v9zm0 7h7v-5H2v5zm9 0h7v-9h-7v9zm0-16v5h7V2h-7z"/></svg>
+          <span>Ringkasan</span>
+        </button>
+        <button class="nav-item" data-view="create">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="10" cy="10" r="8"/><path d="M10 6v8M6 10h8"/></svg>
+          <span>Buat Video</span>
+        </button>
+        <button class="nav-item" data-view="library">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="4" width="7" height="12" rx="1.5"/><rect x="11" y="4" width="7" height="12" rx="1.5"/></svg>
+          <span>Pustaka</span>
+        </button>
+        <button class="nav-item" data-view="queue">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h12M4 10h12M4 14h7"/></svg>
+          <span>Antrian</span>
+          <span id="queueBadge" class="nav-count hidden">0</span>
+        </button>
+        <button class="nav-item" data-view="runs">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 14l5-5 4 4 7-8"/></svg>
+          <span>Proses</span>
+        </button>
+        <button class="nav-item" data-view="trends">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 14l6-6 3 3 7-7"/><path d="M14 4h4v4"/></svg>
+          <span>Tren</span>
+        </button>
+        <button class="nav-item" data-view="ideas">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="10" cy="8" r="5"/><path d="M7.5 13.5l.5 3h4l.5-3"/><path d="M8 16.5h4"/></svg>
+          <span>Ide</span>
+        </button>
+        <button class="nav-item" data-view="health">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 3l6 3v5c0 3.5-2.5 6-6 7-3.5-1-6-3.5-6-7V6l6-3z"/><path d="M7 10l2 2 4-4"/></svg>
+          <span>Diagnostik</span>
+        </button>
+      </nav>
+
+      <div class="side-foot">
+        <div class="next-run-widget">
+          <div class="nrw-label">Run berikutnya</div>
+          <div id="nextRunCountdown" class="nrw-time">--:--:--</div>
+          <div id="nextRunLocal" class="nrw-sub">--</div>
+        </div>
+        <div class="side-bottom-row">
+          <span id="clock" class="clock">--:--</span>
+          <button id="kbdHintBtn" class="icon-btn" title="Shortcuts (?)">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="5" width="16" height="10" rx="2"/><path d="M6 9h1M10 9h1M14 9h1M6 13h8"/></svg>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <div class="content">
+      <header class="topbar">
+        <div class="topbar-left">
+          <p class="kicker" id="viewKicker">Ringkasan</p>
+          <h2 id="viewTitle">Operational Overview</h2>
+        </div>
+        <div class="topbar-right">
+          <span id="configLine" class="config-line muted"></span>
+          <span id="liveDot" class="live-dot" title="Live">●</span>
+          <button id="cmdBtn" class="icon-btn" title="Command palette (⌘K)">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="8.5" cy="8.5" r="5.5"/><path d="M17 17l-4-4"/></svg>
+          </button>
+          <button id="refreshBtn" class="icon-btn" title="Refresh (R)">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17 10a7 7 0 1 1-1.9-4.8"/><path d="M17 3v4h-4"/></svg>
+          </button>
+          <button id="logoutBtn" class="icon-btn" title="Keluar">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 17H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h3"/><path d="M13 13l4-3-4-3"/><path d="M17 10H7"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <div id="toast" class="toast hidden"></div>
+
+      <!-- ===== OVERVIEW ===== -->
+      <section class="view active" data-view="overview">
+        <div id="metrics" class="metric-grid"></div>
+
+        <div class="two-col">
+          <div class="panel">
+            <div class="panel-head">
+              <h3>Workflow Aktif</h3>
+              <span id="runBadge" class="badge idle">Idle</span>
+            </div>
+            <div class="progress-wrap">
+              <div class="progress"><span id="progressBar"></span></div>
+              <span id="progressPct" class="progress-pct">0%</span>
+            </div>
+            <p id="runDetail" class="muted run-detail">Belum ada workflow berjalan.</p>
+            <div id="runSteps" class="run-steps"></div>
+            <div id="runLink" class="run-link hidden"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h3>Konsol Live</h3>
+              <div style="display:flex;gap:6px">
+                <button id="clearLog" class="btn ghost tiny">Bersihkan</button>
+                <button id="copyLog" class="btn ghost tiny">Salin</button>
+              </div>
+            </div>
+            <pre id="console" class="console">Belum ada output.</pre>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Video Terbaru</h3>
+            <button class="btn ghost tiny" data-goto="library">Semua video →</button>
+          </div>
+          <div id="recentList" class="card-grid recent-grid"></div>
+        </div>
+      </section>
+
+      <!-- ===== CREATE ===== -->
+      <section class="view" data-view="create">
+        <div class="create-layout">
+          <div class="panel form-panel">
+            <div class="panel-head"><h3>Generate Video Baru</h3></div>
+            <form id="createForm" class="grid-form">
+              <div class="field span2">
+                <div class="topic-label-row">
+                  <span>Topik <small class="muted">(kosong = AI memilih dari tren)</small></span>
+                  <button type="button" id="btnSearchFacts" class="btn ghost tiny search-facts-btn" title="Cari berita / artikel nyata untuk memperkaya storyboard">
+                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" width="13" height="13"><circle cx="9" cy="9" r="6"/><path d="M14 14l4 4"/></svg>
+                    <span>Cari Berita / Fakta</span>
+                  </button>
+                </div>
+                <div class="topic-input-wrap">
+                  <input name="topic" id="createTopicInput" placeholder="cth: Kenapa kapal baja bisa mengapung? atau isu terkini..." autocomplete="off" />
+                </div>
+
+                <!-- Box Hasil Pencarian Berita di Tab Buat -->
+                <div id="createFactsBox" class="create-facts-box hidden">
+                  <div class="create-facts-header">
+                    <span id="createFactsTitle" class="facts-status">Berita &amp; fakta pendukung ditemukan:</span>
+                    <div class="facts-actions">
+                      <button type="button" id="btnToggleAllFacts" class="text-btn">Batal Semua</button>
+                      <button type="button" id="btnCloseFacts" class="text-btn">Tutup</button>
+                    </div>
+                  </div>
+                  <div id="createFactsList" class="create-facts-list"></div>
+                </div>
+
+                <!-- Checkbox Grounding Otomatis -->
+                <label class="auto-facts-check">
+                  <input type="checkbox" id="autoGroundFacts" name="autoGroundFacts" checked />
+                  <span>Sertakan fakta/berita terkait secara otomatis (membuat storyboard lebih kaya)</span>
+                </label>
+              </div>
+
+              <label class="field">
+                <span>Kategori</span>
+                <select name="category">
+                  <option value="random">🎲 Acak (AI memilih)</option>
+                  <option value="sains">🔬 Sains</option>
+                  <option value="sejarah">🏛️ Sejarah</option>
+                  <option value="teknologi">💡 Teknologi</option>
+                  <option value="misteri">🔍 Misteri</option>
+                  <option value="bisnis">📈 Bisnis</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span>Durasi Target</span>
+                <select name="durationSec">
+                  <option value="300">5 menit</option>
+                  <option value="480">8 menit</option>
+                  <option value="600">10 menit</option>
+                  <option value="720">12 menit</option>
+                  <option value="900">15 menit</option>
+                  <option value="1200" selected>20 menit ⭐</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span>Jumlah Scene</span>
+                <select name="sceneCount" id="sceneCountSelect">
+                  <option value="10">10 scene (~5 mnt)</option>
+                  <option value="14">14 scene (~8 mnt)</option>
+                  <option value="18">18 scene (~10 mnt)</option>
+                  <option value="22">22 scene (~12 mnt)</option>
+                  <option value="26">26 scene (~15 mnt)</option>
+                  <option value="32">32 scene (~18 mnt)</option>
+                  <option value="36" selected>36 scene (~20 mnt ⭐)</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span>TTS Provider</span>
+                <select name="ttsProvider">
+                  <option value="openai">OpenAI TTS</option>
+                  <option value="elevenlabs">ElevenLabs</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span>Suara Narator</span>
+                <select name="ttsVoice" id="ttsVoiceSelect"></select>
+              </label>
+
+              <label class="field">
+                <span>Kualitas Gambar</span>
+                <select name="imageQuality">
+                  <option value="low" selected>Low (cepat)</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High (lambat)</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span>Resolusi Video</span>
+                <select name="resolution">
+                  <option value="720p">720p HD</option>
+                  <option value="1080p" selected>1080p Full HD ⭐</option>
+                </select>
+              </label>
+
+              <!-- Format type picker -->
+              <div class="field span2">
+                <span>Format Video <small class="muted">(kosong = AI memilih)</small></span>
+                <div id="formatPicker" class="format-picker"></div>
+                <input type="hidden" name="formatType" id="formatTypeInput" value="" />
+              </div>
+
+              <label class="field span2 check">
+                <input type="checkbox" name="force" checked />
+                <span>Paksa buat (abaikan batas harian)</span>
+              </label>
+
+              <div class="form-actions span2">
+                <button type="button" id="btnGenerate" class="btn primary">
+                  <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 2l10 8-10 8V2z" transform="translate(1,0)"/></svg>
+                  Generate Sekarang
+                </button>
+                <button type="button" id="btnQueue" class="btn ghost">
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h12M4 10h12M4 14h5"/><path d="M14 12l4 2-4 2v-4z"/></svg>
+                  Tambah ke Antrian
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Estimasi -->
+          <div class="create-aside">
+            <div class="panel est-card">
+              <h3 class="panel-sub-head">Estimasi</h3>
+              <div class="est-rows">
+                <div class="est-row"><span>Durasi video</span><b id="estDur">~20 mnt</b></div>
+                <div class="est-row"><span>Jumlah kata</span><b id="estWords">~3.100</b></div>
+                <div class="est-row"><span>Biaya TTS</span><b id="estCost">~$0.09</b></div>
+                <div class="est-row"><span>Biaya image</span><b id="estImg">~$0.26</b></div>
+                <div class="est-row total"><span>Total estimasi</span><b id="estTotal">~$0.35</b></div>
+              </div>
+            </div>
+            <div id="trendSelectedCard" class="panel trend-sel-card hidden">
+              <div class="tsc-label">Tren dipilih</div>
+              <div id="trendSelTitle" class="tsc-title"></div>
+              <button id="clearTrend" class="btn ghost tiny" style="margin-top:8px">Hapus pilihan</button>
+            </div>
+            <div class="panel shortcut-card">
+              <h3 class="panel-sub-head">Tips</h3>
+              <ul class="tip-list">
+                <li>Topik kosong → AI memilih dari tren terkini</li>
+                <li>Pilih tren dari tab <b>Tren</b> lalu klik "Gunakan"</li>
+                <li>Format kosong → AI memilih format terbaik</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== LIBRARY ===== -->
+      <section class="view" data-view="library">
+        <div class="panel">
+          <div class="panel-head lib-head">
+            <h3>Pustaka Video</h3>
+            <div class="lib-tools">
+              <input id="librarySearch" class="search" type="search" placeholder="Cari judul..." />
+              <select id="libraryFilter" class="search">
+                <option value="all">Semua</option>
+                <option value="uploaded">Terupload</option>
+                <option value="rendered">Rendered</option>
+                <option value="failed">Gagal</option>
+              </select>
+              <select id="librarySort" class="search">
+                <option value="newest">Terbaru</option>
+                <option value="oldest">Terlama</option>
+                <option value="duration">Durasi</option>
+                <option value="cost">Biaya</option>
+              </select>
+            </div>
+          </div>
+          <div id="libStats" class="lib-stats"></div>
+          <div id="libraryGrid" class="card-grid"></div>
+          <div id="libraryEmpty" class="empty-state hidden">
+            <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="1.5" width="48" height="48"><rect x="8" y="12" width="48" height="36" rx="4"/><path d="M24 28l10 6-10 6V28z"/></svg>
+            <p>Belum ada video yang cocok.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== QUEUE ===== -->
+      <section class="view" data-view="queue">
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Antrian Produksi</h3>
+            <button class="btn primary tiny" data-goto="create">+ Tambah</button>
+          </div>
+          <div id="queueList" class="queue-list"></div>
+          <div id="queueEmpty" class="empty-state hidden">
+            <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="1.5" width="48" height="48"><path d="M12 20h40M12 32h40M12 44h20"/></svg>
+            <p>Antrian kosong.</p>
+            <button class="btn ghost tiny" data-goto="create">Tambah video</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== RUNS ===== -->
+      <section class="view" data-view="runs">
+        <div class="panel">
+          <div class="panel-head"><h3>Riwayat GitHub Actions</h3></div>
+          <div id="runsList" class="runs-list"></div>
+          <div id="runsEmpty" class="empty-state hidden">
+            <p class="muted">Belum ada run tercatat.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== TRENDS ===== -->
+      <section class="view" data-view="trends">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>Tren Berita Bertahan</h3>
+              <p id="trendUpdated" class="muted" style="font-size:12px;margin-top:2px">Belum dimuat.</p>
+            </div>
+            <button id="refreshTrendsBtn" class="btn ghost tiny">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14"><path d="M17 10a7 7 0 1 1-1.9-4.8"/><path d="M17 3v4h-4"/></svg>
+              Muat Ulang
+            </button>
+          </div>
+          <div class="trend-meta-row">
+            <div id="trendCriteria" class="trend-criteria"></div>
+            <div id="trendMedia" class="trend-media"></div>
+          </div>
+        </div>
+        <div id="trendList" class="trend-list" aria-live="polite">
+          <div class="empty-state"><p class="muted">Buka tab ini untuk memuat tren.</p></div>
+        </div>
+      </section>
+
+      <!-- ===== HEALTH ===== -->
+      <!-- IDE VIDEO -->
+      <section class="view" data-view="ideas">
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Ide Video</h3>
+            <span class="badge muted">Riset topik manual</span>
+          </div>
+          <div class="ideas-search-row">
+            <input id="ideasQuery" class="ideas-input" type="text"
+              placeholder="Tulis judul berita atau topik yang ingin diangkat..." maxlength="200" />
+            <button id="ideasSearchBtn" class="btn primary">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14"><circle cx="9" cy="9" r="5"/><path d="M14 14l3 3"/></svg>
+              Cari Fakta
+            </button>
+          </div>
+          <p class="ideas-hint muted">Sistem akan mencari berita terkait dari Google News dan mengambil isi artikelnya sebagai bahan video.</p>
+          <div id="ideasResult" class="ideas-result"></div>
+
+          <!-- Panel workflow terpisah: generate video dari artikel terpilih -->
+          <div id="ideaCreatePanel" class="idea-create-panel hidden">
+            <div class="panel-head">
+              <button type="button" id="ideaCreateBack" class="btn ghost tiny">← Kembali ke hasil pencarian</button>
+            </div>
+            <div id="ideaSelTitle" class="tsc-title"></div>
+            <form id="ideaCreateForm" class="grid-form">
+              <label class="field">
+                <span>Kategori</span>
+                <select name="category">
+                  <option value="random">🎲 Acak (AI memilih)</option>
+                  <option value="sains">🔬 Sains</option>
+                  <option value="sejarah">🏛️ Sejarah</option>
+                  <option value="teknologi">💡 Teknologi</option>
+                  <option value="misteri">🔍 Misteri</option>
+                  <option value="bisnis">📈 Bisnis</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span>TTS Provider</span>
+                <select name="ttsProvider">
+                  <option value="openai">OpenAI TTS</option>
+                  <option value="elevenlabs">ElevenLabs</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span>Suara Narator</span>
+                <select name="ttsVoice" id="ideaTtsVoiceSelect"></select>
+              </label>
+
+              <label class="field">
+                <span>Kualitas Gambar</span>
+                <select name="imageQuality">
+                  <option value="low" selected>Low (cepat)</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High (lambat)</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span>Resolusi Video</span>
+                <select name="resolution">
+                  <option value="720p">720p HD</option>
+                  <option value="1080p" selected>1080p Full HD ⭐</option>
+                </select>
+              </label>
+
+              <div class="field span2">
+                <span>Format Video <small class="muted">(kosong = AI memilih)</small></span>
+                <div id="ideaFormatPicker" class="format-picker"></div>
+                <input type="hidden" name="formatType" id="ideaFormatTypeInput" value="" />
+              </div>
+
+              <label class="field span2 check">
+                <input type="checkbox" name="force" checked />
+                <span>Paksa buat (abaikan batas harian)</span>
+              </label>
+
+              <p class="field span2 idea-auto-note muted">
+                Durasi &amp; jumlah scene dihitung otomatis dari panjang artikel — bukan target tetap seperti tab Buat.
+              </p>
+
+              <div class="form-actions span2">
+                <button type="button" id="ideaBtnGenerate" class="btn primary">Generate Sekarang</button>
+                <button type="button" id="ideaBtnQueue" class="btn ghost">Tambah ke Antrian</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" data-view="health">
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Diagnostik Sistem</h3>
+            <button id="preflightBtn" class="btn ghost tiny">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14"><path d="M10 3l6 3v5c0 3.5-2.5 6-6 7-3.5-1-6-3.5-6-7V6l6-3z"/></svg>
+              Jalankan
+            </button>
+          </div>
+          <div id="healthList" class="health-list">
+            <div class="empty-state"><p class="muted">Klik "Jalankan" untuk cek semua sistem.</p></div>
+          </div>
+        </div>
+      </section>
+    </div><!-- /content -->
+  </main>
+
+  <!-- DRAWER / VIDEO DETAIL -->
+  <div id="drawer" class="drawer hidden">
+    <div class="drawer-inner">
+      <button id="closeDrawer" class="drawer-close">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 5l10 10M15 5L5 15"/></svg>
+      </button>
+      <div id="drawerBody"></div>
+    </div>
+  </div>
+
+  <!-- COMMAND PALETTE -->
+  <div id="cmdPalette" class="cmd-overlay hidden">
+    <div class="cmd-box">
+      <div class="cmd-search-row">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" width="16" height="16"><circle cx="8.5" cy="8.5" r="5.5"/><path d="M17 17l-4-4"/></svg>
+        <input id="cmdInput" type="text" placeholder="Cari view, aksi, atau video..." autocomplete="off" />
+        <kbd>Esc</kbd>
+      </div>
+      <div id="cmdResults" class="cmd-results"></div>
+    </div>
+  </div>
+
+  <!-- KEYBOARD SHORTCUTS MODAL -->
+  <div id="kbdModal" class="kbd-overlay hidden">
+    <div class="kbd-box">
+      <div class="kbd-head"><h3>Keyboard Shortcuts</h3><button id="closeKbd" class="drawer-close"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M5 5l10 10M15 5L5 15"/></svg></button></div>
+      <div class="kbd-grid">
+        <div class="kbd-group">
+          <div class="kbd-group-label">Navigasi</div>
+          <div class="kbd-row"><span>Ringkasan</span><kbd>1</kbd></div>
+          <div class="kbd-row"><span>Buat Video</span><kbd>2</kbd></div>
+          <div class="kbd-row"><span>Pustaka</span><kbd>3</kbd></div>
+          <div class="kbd-row"><span>Antrian</span><kbd>4</kbd></div>
+          <div class="kbd-row"><span>Proses</span><kbd>5</kbd></div>
+          <div class="kbd-row"><span>Tren</span><kbd>6</kbd></div>
+          <div class="kbd-row"><span>Diagnostik</span><kbd>7</kbd></div>
+        </div>
+        <div class="kbd-group">
+          <div class="kbd-group-label">Aksi</div>
+          <div class="kbd-row"><span>Command Palette</span><kbd>⌘K</kbd></div>
+          <div class="kbd-row"><span>Refresh Data</span><kbd>R</kbd></div>
+          <div class="kbd-row"><span>Keyboard Shortcuts</span><kbd>?</kbd></div>
+          <div class="kbd-row"><span>Tutup modal</span><kbd>Esc</kbd></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

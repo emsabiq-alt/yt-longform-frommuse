@@ -1,0 +1,36 @@
+{
+  "name": "yt-longform-studio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Studio video panjang (longform 16:9) edukasi Bahasa Indonesia: naskah AI, gambar, TTS per scene yang sinkron, render FFmpeg, dan auto-upload khusus YouTube.",
+  "scripts": {
+    "dev": "node src/server.js",
+    "start": "node src/server.js",
+    "preflight": "node src/preflight.js",
+    "preview:speech": "node scripts/preview-speech.js",
+    "run:once": "node src/run-once.js",
+    "upload:once": "node src/upload-only.js",
+    "localize:youtube": "node scripts/localize-youtube.js",
+    "localize:youtube:all": "node scripts/localize-youtube-all.js",
+    "set:youtube:indonesian": "node scripts/set-all-indonesian.js",
+    "playlist:volcano": "node scripts/create-volcano-playlist.js",
+    "organize:playlists": "node scripts/organize-playlists.js",
+    "cleanup": "node src/sftp-cleanup.js",
+    "rerender": "node src/rerender.js",
+    "test": "node --test test/api-utils.test.js test/google-image.test.js test/news-research.test.js test/pixabay.test.js test/util.test.js test/pipeline.test.js test/grounding.test.js test/pexels.test.js test/wikimedia.test.js test/openverse.test.js test/story-language.test.js test/longform-story-engine.test.js test/grid-image.test.js test/segment-sync.test.js test/format-cost.test.js test/caption-chapter.test.js test/youtube-localization.test.js test/topic-engine.test.js test/thumbnail.test.js test/pollinations.test.js test/youtube-publisher.test.js test/openai-retry.test.js test/spotlight.test.js test/news-image.test.js test/entity-visual.test.js test/duration-control.test.js",
+    "test:continuity": "node scripts/test-continuity.js",
+    "test:overlay": "node scripts/test-pexels-overlay.js",
+    "patch:pureimage": "node scripts/patch-pureimage.js",
+    "postinstall": "node -e \"try{require('fs').accessSync('scripts/patch-pureimage.js');require('child_process').execSync('node scripts/patch-pureimage.js',{stdio:'inherit'})}catch(e){console.log('skip patch-pureimage (not needed in this environment)')}\"",
+    "check": "node --check src/server.js && node --check src/config.js && node --check src/progress.js && node --check src/pipeline.js && node --check src/longform-render.js && node --check src/topic-engine.js && node --check src/google-news-trends.js && node --check src/longform-story-engine.js && node --check src/format-engine.js && node --check src/viral-angle-library.js && node --check src/story-language.js && node --check src/openai.js && node --check src/deepseek.js && node --check src/wikipedia.js && node --check src/wikimedia.js && node --check src/openverse.js && node --check src/wikidata.js && node --check src/elevenlabs.js && node --check src/pexels.js && node --check src/pixabay.js && node --check src/youtube-meta.js && node --check src/youtube-localization.js && node --check src/title-engine.js && node --check src/youtube-publisher.js && node --check src/youtube-playlist.js && node --check src/youtube-trends.js && node --check src/remote.js && node --check src/storage.js && node --check src/thumbnail.js && node --check src/pollinations.js && node --check src/cost.js && node --check src/util.js && node --check src/word-timeline.js && node --check src/spotlight.js && node --check src/google-image.js && node --check src/news-image.js && node --check src/news-research.js && node --check src/run-once.js && node --check src/upload-only.js && node --check src/rerender.js && node --check src/preflight.js && node --check src/sftp-cleanup.js && node --check scripts/localize-youtube.js && node --check scripts/localize-youtube-all.js && node --check scripts/set-all-indonesian.js && node --check scripts/organize-playlists.js && node --check api/_utils.js && node --check api/auth.js && node --check api/state.js && node --check api/run.js && node --check api/queue.js && node --check api/preflight.js && node --check api/research.js && node --check api/trends.js && node --check scripts/preview-speech.js && node --check src/duration-control.js"
+  },
+  "dependencies": {
+    "basic-ftp": "^5.3.1",
+    "dotenv": "^16.4.7",
+    "express": "^5.2.1",
+    "pureimage": "^0.4.18",
+    "ssh2-sftp-client": "^12.1.1",
+    "ws": "^8.18.0"
+  }
+}

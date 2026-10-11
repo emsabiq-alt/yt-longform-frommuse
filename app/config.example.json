@@ -1,0 +1,14 @@
+{
+  "stateUrl": "https://yt.emsa.pro/state/items.json",
+  "mediaBaseUrl": "https://yt.emsa.pro",
+  "github": {
+    "repo": "USERNAME/yt-longform",
+    "workflow": "yt-longform-generate.yml",
+    "ref": "main",
+    "token": ""
+  },
+  "local": {
+    "nodeCommand": "npm",
+    "projectDir": ""
+  }
+}

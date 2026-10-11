@@ -1,0 +1,14 @@
+.env
+.env.*
+*.env
+node_modules
+generated
+output
+data
+src
+scripts
+assets
+app
+.github
+*.log
+README.md

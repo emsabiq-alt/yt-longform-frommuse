@@ -1,0 +1,64 @@
+name: YT Longform SFTP Cleanup
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (true = hanya laporan, tidak menghapus apa pun)"
+        required: false
+        default: "true"
+      max_age_days:
+        description: "Hapus file lebih tua dari N hari (semua folder media)"
+        required: false
+        default: "7"
+      uploaded_age_days:
+        description: "Hapus video+gambar yg sudah diupload YouTube setelah N hari"
+        required: false
+        default: "1"
+  schedule:
+    # 02:30 WIB / Asia-Bangkok (UTC+7) — terpisah dari generate (09:15 WIB). Cron GitHub = UTC.
+    - cron: "30 19 * * *"
+
+concurrency:
+  group: yt-longform-sftp-cleanup
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      UPLOAD_DRIVER: ${{ secrets.UPLOAD_DRIVER || 'sftp' }}
+      SFTP_HOST: ${{ secrets.SFTP_HOST }}
+      SFTP_PORT: ${{ secrets.SFTP_PORT || '65002' }}
+      SFTP_USER: ${{ secrets.SFTP_USER }}
+      SFTP_PASSWORD: ${{ secrets.SFTP_PASSWORD }}
+      SFTP_PRIVATE_KEY: ${{ secrets.SFTP_PRIVATE_KEY }}
+      SFTP_REMOTE_DIR: ${{ secrets.SFTP_REMOTE_DIR }}
+      FTP_HOST: ${{ secrets.FTP_HOST }}
+      FTP_PORT: ${{ secrets.FTP_PORT || '21' }}
+      FTP_USER: ${{ secrets.FTP_USER }}
+      FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+      FTP_REMOTE_DIR: ${{ secrets.FTP_REMOTE_DIR }}
+      PUBLIC_BASE_URL: ${{ secrets.PUBLIC_BASE_URL }}
+      CLEANUP_MAX_AGE_DAYS: ${{ github.event.inputs.max_age_days || '7' }}
+      CLEANUP_UPLOADED_AGE_DAYS: ${{ github.event.inputs.uploaded_age_days || '1' }}
+      CLEANUP_DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --no-audit --fund=false
+
+      - name: Run SFTP cleanup
+        run: node src/sftp-cleanup.js

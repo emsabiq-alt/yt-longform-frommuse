@@ -1,0 +1,31 @@
+node_modules/
+npm-debug.log*
+*.log
+
+.env
+.env.*
+.env.backup-*
+*.env
+!.env.example
+
+data/items.json
+data/memory.json
+generated/
+output/
+
+.DS_Store
+Thumbs.db
+
+.vercel
+__pycache__/
+*.pyc
+app/.venv/
+
+# Local app config — berisi PAT GitHub, jangan pernah di-commit (pakai config.example.json sbg template)
+app/config.json
+
+# Graphify knowledge graph output (di-generate ulang dengan `graphify extract .`)
+graphify-out/
+
+# AI agent config (platform-specific, di-generate oleh graphify install)
+.agents/

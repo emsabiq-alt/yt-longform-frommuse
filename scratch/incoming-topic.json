@@ -1,0 +1,78 @@
+{
+  "trendTopic": "Indonesia",
+  "primaryAngle": "Menginvestigasi paradoks Indonesia: negara kepulauan di Cincin Api yang sekaligus terus kehilangan daratan, air tanah, dan garis pantainya—bukan karena satu bencana besar, melainkan proses perlahan yang nyaris tak terlihat.",
+  "category": "sains",
+  "hookOptions": [
+    {
+      "type": "Curiosity Gap (Misteri)",
+      "title": "Mengapa Sebagian Indonesia Turun Perlahan—Saat Laut Terus Naik?",
+      "thumbnailText": "APA YANG TERJADI?",
+      "clickTrigger": "Penonton mengenal banjir rob, tetapi ingin memahami misteri yang lebih besar: mengapa tanah di beberapa kota turun lebih cepat daripada kenaikan laut."
+    },
+    {
+      "type": "What If (Konsekuensi Ekstrem)",
+      "title": "Apa yang Terjadi Jika Tanah Indonesia Terus Tenggelam 1 Sentimeter per Tahun?",
+      "thumbnailText": "TIDAK BISA DIHENTIKAN",
+      "clickTrigger": "Skala waktu yang terasa dekat mengubah angka ilmiah menjadi ancaman personal bagi rumah, kota, pangan, dan jutaan penduduk."
+    },
+    {
+      "type": "Sains Kontras (Membantah Mitos)",
+      "title": "Indonesia Tidak Sekadar Tenggelam Karena Laut Naik—Ada yang Menghilang di Bawah Kita",
+      "thumbnailText": "BUKAN KEBETULAN",
+      "clickTrigger": "Menantang penjelasan umum tentang perubahan iklim dengan mekanisme tersembunyi: pengambilan air tanah, kompaksi sedimen, dan tata kota."
+    },
+    {
+      "type": "Kronologi Investigatif",
+      "title": "Detik-Detik Sebuah Kota Pesisir Kehilangan Daratan: Kronologi Indonesia yang Turun",
+      "thumbnailText": "SUDAH TERLAMBAT?",
+      "clickTrigger": "Storytelling berbasis arsip, peta lama, dan rekaman perubahan garis pantai membuat penonton menyaksikan krisis yang biasanya berlangsung tanpa terlihat."
+    }
+  ],
+  "recommendedTitle": "Indonesia Tidak Tenggelam Karena Laut Naik—Tanah di Bawah Kita yang Menghilang",
+  "coldOpenScript": "Bayangkan Anda berdiri di pesisir utara Jawa. Laut memang naik, perlahan, tahun demi tahun. Tapi itu bukan seluruh ceritanya. Di beberapa tempat, tanah tempat rumah, jalan, dan masjid berdiri justru turun berkali-kali lebih cepat. Tidak ada suara retakan raksasa. Tidak ada satu hari ketika kota resmi tenggelam. Hanya air yang datang semakin jauh, lalu tidak pernah benar-benar pulang. Pertanyaannya: siapa yang menarik Indonesia ke bawah?",
+  "synopsis": "Video ini mengikuti jejak krisis yang terlihat seperti banjir biasa, tetapi sebenarnya merupakan pertemuan tiga kekuatan: laut yang memuai akibat pemanasan global, tanah lunak pesisir yang memadat, dan air tanah yang dipompa dari lapisan bawah kota. Dari citra satelit hingga sumur-sumur dalam, investigasi membongkar mengapa kenaikan permukaan laut hanyalah separuh dari ancaman yang dihadapi banyak wilayah pesisir Indonesia.\n\nAlur cerita bergerak dari pengalaman warga yang menghadapi rob menuju sains geologi dan hidrologi di bawah kaki mereka. Penonton kemudian diajak melihat bukti dari peta historis, pengukuran GPS, serta perubahan tata ruang—lalu memahami bahwa masalah ini bukan takdir geografis. Babak akhir membandingkan solusi yang benar-benar bekerja, batasnya, dan keputusan yang harus dibuat sebelum perlindungan pantai berubah menjadi perlombaan tanpa garis akhir.",
+  "threeActStructure": {
+    "act1_TheAnomaly": "Kita mulai dari paradoks pesisir: air rob masuk semakin sering, bangunan tampak lebih rendah dari tahun-tahun sebelumnya, dan warga meninggikan lantai rumah berulang kali. Peta sebelum-sesudah memperlihatkan garis pantai serta permukiman yang berubah, sementara pertanyaan utama muncul: apakah laut yang menyerbu, atau daratan yang mundur?",
+    "act2_TheHiddenScience": "Investigasi masuk ke bawah permukaan: akuifer yang diekstraksi, pori-pori tanah yang kehilangan tekanan, sedimen delta yang memadat, dan lempeng tektonik yang selalu bergerak. Data satelit interferometri, alat GPS, sumur pantau, serta arsip peta menjelaskan bahwa penurunan tanah dan kenaikan muka laut dapat saling memperkuat—namun masing-masing menuntut solusi berbeda.",
+    "act3_TheImpact": "Krisis ini diterjemahkan menjadi dampak nyata bagi air bersih, banjir, pelabuhan, permukiman, dan ketahanan pangan. Video menutup dengan pilihan yang tidak mudah tetapi dapat dilakukan: mengurangi ketergantungan air tanah, memperbaiki jaringan air perpipaan, melindungi ekosistem pesisir, mengatur pembangunan, dan menentukan wilayah mana yang harus dipertahankan atau direlokasi secara adil."
+  },
+  "thumbnailConcept": {
+    "visualDescription": "Tampilan sinematik 16:9 dari kota pesisir Indonesia saat senja: sisi kiri memperlihatkan rumah dan jalan tergenang rob, sisi kanan berupa potongan melintang tanah yang retak menuju akuifer kosong di bawah gedung. Sebuah garis merah menunjukkan tanah turun, sementara siluet peta Indonesia samar di langit.",
+    "focalPoint": "Rumah kecil yang setengah tenggelam tepat di atas retakan tanah dan rongga akuifer bercahaya gelap.",
+    "colorTone": "Biru kelabu dingin dengan aksen merah peringatan dan cahaya jingga senja.",
+    "overlayText": "TANAHNYA TURUN"
+  },
+  "keyScenes": [
+    {
+      "scene": 1,
+      "visualPrompt": "Drone sinematik menyusuri jalan kampung pesisir Indonesia yang tergenang air rob, warga berjalan di atas papan sempit, rumah-rumah memiliki lantai yang ditinggikan berlapis-lapis, format dokumenter realistis 16:9.",
+      "narrationFocus": "Membuka dengan pengalaman manusia: banjir yang tidak datang sebagai bencana satu kali, melainkan menjadi rutinitas."
+    },
+    {
+      "scene": 2,
+      "visualPrompt": "Transisi peta historis kota pesisir Indonesia dari beberapa dekade berbeda, garis pantai dan area genangan berubah perlahan, overlay citra satelit dan angka penurunan tanah, gaya investigasi sains.",
+      "narrationFocus": "Menunjukkan bahwa perubahan tidak terjadi dalam semalam, tetapi bukti visualnya telah menumpuk."
+    },
+    {
+      "scene": 3,
+      "visualPrompt": "Animasi potongan melintang bawah tanah: pompa mengambil air dari akuifer, tekanan pori berkurang, lapisan sedimen memadat, permukaan kota turun perlahan sementara laut berada di sampingnya.",
+      "narrationFocus": "Menjelaskan mekanisme ilmiah penurunan muka tanah secara sederhana dan akurat."
+    },
+    {
+      "scene": 4,
+      "visualPrompt": "Visualisasi data satelit interferometri di atas peta Indonesia, warna merah-oranye menandai area yang turun, lalu berubah menjadi pengukuran GPS dan wawancara ahli geologi di lapangan.",
+      "narrationFocus": "Membedakan opini dari bukti: bagaimana ilmuwan mengukur pergerakan tanah yang tidak bisa dilihat mata."
+    },
+    {
+      "scene": 5,
+      "visualPrompt": "Montase solusi: jaringan pipa air bersih, kawasan resapan hijau, rehabilitasi mangrove, tanggul pesisir, dan pertemuan warga melihat peta risiko masa depan, pencahayaan harapan pagi hari.",
+      "narrationFocus": "Menutup dengan solusi berlapis dan pertanyaan etis: siapa yang dilindungi, siapa yang harus pindah, dan siapa yang membayar."
+    }
+  ],
+  "a030TopicPayload": {
+    "topic": "Misteri Tanah Indonesia yang Turun",
+    "category": "sains",
+    "viralAngle": "Indonesia bukan hanya menghadapi laut yang naik; di banyak pesisir, tanahnya sendiri sedang turun akibat kombinasi geologi dan aktivitas manusia.",
+    "searchQuery": "penurunan tanah pesisir Indonesia banjir rob air tanah citra satelit"
+  }
+}

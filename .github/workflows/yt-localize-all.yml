@@ -1,0 +1,64 @@
+name: YT Localize All Metadata
+
+on:
+  workflow_dispatch:
+    inputs:
+      languages:
+        description: Comma-separated language codes
+        required: false
+        default: en,es,pt-BR,hi,ar,fr,de,ja,ko,zh-CN,ru,it,tr,vi,th
+        type: string
+      limit:
+        description: Maximum videos (0 = all)
+        required: false
+        default: "0"
+        type: string
+      concurrency:
+        description: Parallel videos (1-5)
+        required: false
+        default: "3"
+        type: string
+      force:
+        description: Re-translate languages that already exist
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  localize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      YOUTUBE_UPLOAD_ENABLED: "true"
+      YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+      YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+      YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+      YOUTUBE_DEFAULT_LANGUAGE: ${{ secrets.YOUTUBE_DEFAULT_LANGUAGE || 'id' }}
+      YOUTUBE_DEFAULT_AUDIO_LANGUAGE: ${{ secrets.YOUTUBE_DEFAULT_AUDIO_LANGUAGE || 'id' }}
+      YOUTUBE_LOCALIZATION_ENABLED: "true"
+      YOUTUBE_LOCALIZATION_LANGUAGES: ${{ github.event.inputs.languages || 'en,es,pt-BR,hi,ar,fr,de,ja,ko,zh-CN,ru,it,tr,vi,th' }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY || secrets.deepseek_api_key }}
+      DEEPSEEK_BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL || 'https://api.deepseek.com' }}
+      DEEPSEEK_MODEL: ${{ secrets.DEEPSEEK_MODEL || 'deepseek-chat' }}
+      LANGUAGES: ${{ github.event.inputs.languages || 'en,es,pt-BR,hi,ar,fr,de,ja,ko,zh-CN,ru,it,tr,vi,th' }}
+      LIMIT: ${{ github.event.inputs.limit || '0' }}
+      CONCURRENCY: ${{ github.event.inputs.concurrency || '3' }}
+      FORCE: ${{ github.event.inputs.force || 'false' }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --no-audit --fund=false
+
+      - name: Localize all uploaded videos
+        run: npm run localize:youtube:all -- --languages "$LANGUAGES" --limit "$LIMIT" --concurrency "$CONCURRENCY" --force "$FORCE"

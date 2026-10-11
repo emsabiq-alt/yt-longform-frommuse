@@ -1,0 +1,10 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='1280' height='720'>
+  <defs>
+    <linearGradient id='gold' x1='0%' y1='0%' x2='0%' y2='100%'>
+      <stop offset='0%' stop-color='#FFE57F' />
+      <stop offset='50%' stop-color='#FFB300' />
+      <stop offset='100%' stop-color='#FF8F00' />
+    </linearGradient>
+  </defs>
+  <text x='640' y='500' font-family='Impact' font-size='110' font-weight='bold' text-anchor='middle' fill='url(#gold)' stroke='black' stroke-width='10' paint-order='stroke fill'>MISTERI KOTA KUNO</text>
+</svg>

@@ -1,0 +1,242 @@
+name: YT Longform Generate
+
+on:
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: Optional topic seed
+        required: false
+        default: ""
+      category:
+        description: Category (vulkanologi, geologi, sains, sejarah, dll)
+        required: false
+        default: vulkanologi
+      duration:
+        description: Duration seconds (300-1200; default 900 / 15 menit)
+        required: false
+        default: "900"
+      scenes:
+        description: Initial scene count (8-48; default 27 untuk 15 menit)
+        required: false
+        default: "27"
+      tts_provider:
+        description: openai or elevenlabs
+        required: false
+        default: openai
+      tts_voice:
+        description: TTS voice
+        required: false
+        default: nova
+      image_quality:
+        description: low, medium, high
+        required: false
+        default: low
+      resolution:
+        description: Video resolution (720p or 1080p)
+        required: false
+        default: "1080p"
+      format_type:
+        description: Format video type (dokumenter_klasik, investigasi_misteri, timeline_evolutif, mitos_vs_fakta, kisah_manusia, countdown, debat_dua_sisi, fenomena_alam, perbandingan, eksperimen_berpikir)
+        required: false
+        default: ""
+      force:
+        description: Bypass daily generate limit
+        required: false
+        default: "true"
+  schedule:
+    # Mulai 04:15 WIB (21:15 UTC); render ~2j45m membuat upload tiba sekitar
+    # 20:00 US Eastern saat DST / 19:00 saat standard time (prime time malam US).
+    - cron: "15 21 * * *"
+
+concurrency:
+  group: yt-longform-generate
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    env:
+      PUBLIC_BASE_URL: ${{ secrets.PUBLIC_BASE_URL }}
+      AUTO_DASHBOARD_PIN: ${{ secrets.AUTO_DASHBOARD_PIN || '123456' }}
+      UPLOAD_DRIVER: ${{ secrets.UPLOAD_DRIVER || 'sftp' }}
+      SFTP_HOST: ${{ secrets.SFTP_HOST }}
+      SFTP_PORT: ${{ secrets.SFTP_PORT || '65002' }}
+      SFTP_USER: ${{ secrets.SFTP_USER }}
+      SFTP_PASSWORD: ${{ secrets.SFTP_PASSWORD }}
+      SFTP_PRIVATE_KEY: ${{ secrets.SFTP_PRIVATE_KEY }}
+      SFTP_REMOTE_DIR: ${{ secrets.SFTP_REMOTE_DIR }}
+      SFTP_UPLOAD_TIMEOUT_SECONDS: ${{ secrets.SFTP_UPLOAD_TIMEOUT_SECONDS || '300' }}
+      FTP_HOST: ${{ secrets.FTP_HOST }}
+      FTP_PORT: ${{ secrets.FTP_PORT || '21' }}
+      FTP_USER: ${{ secrets.FTP_USER }}
+      FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+      FTP_REMOTE_DIR: ${{ secrets.FTP_REMOTE_DIR }}
+
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL || 'https://api.openai.com/v1' }}
+      STORY_MODEL: ${{ secrets.STORY_MODEL || 'gpt-4.1-mini' }}
+      IMAGE_MODEL: ${{ secrets.IMAGE_MODEL || 'gpt-image-1-mini' }}
+      IMAGE_SIZE: ${{ secrets.IMAGE_SIZE || '1536x1024' }}
+      IMAGE_QUALITY: ${{ github.event.inputs.image_quality || secrets.IMAGE_QUALITY || 'low' }}
+      OPENAI_TTS_MODEL: ${{ secrets.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts' }}
+      OPENAI_TTS_VOICE: ${{ github.event.inputs.tts_voice || secrets.OPENAI_TTS_VOICE || 'nova' }}
+      OPENAI_TTS_SPEED: ${{ secrets.OPENAI_TTS_SPEED || '1.08' }}
+      OPENAI_TTS_INSTRUCTIONS: ${{ secrets.OPENAI_TTS_INSTRUCTIONS || '' }}
+      OPENAI_TRANSCRIBE_MODEL: ${{ secrets.OPENAI_TRANSCRIBE_MODEL || 'whisper-1' }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY || secrets.deepseek_api_key }}
+      DEEPSEEK_BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL || 'https://api.deepseek.com' }}
+      DEEPSEEK_MODEL: ${{ secrets.DEEPSEEK_MODEL || 'deepseek-chat' }}
+      DEEPSEEK_IDEA_TIMEOUT_MS: ${{ secrets.DEEPSEEK_IDEA_TIMEOUT_MS || '30000' }}
+      DEEPSEEK_LANGUAGES_PER_REQUEST: ${{ secrets.DEEPSEEK_LANGUAGES_PER_REQUEST || '5' }}
+      ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+      ELEVENLABS_MODEL: ${{ secrets.ELEVENLABS_MODEL || 'eleven_multilingual_v2' }}
+      ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID || 'wUrGnU2Kx934kbDdOWDo' }}
+      ELEVENLABS_SPEED: ${{ secrets.ELEVENLABS_SPEED || '1.08' }}
+      POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
+      POLLINATIONS_IMAGE_MODEL: ${{ secrets.POLLINATIONS_IMAGE_MODEL || 'flux' }}
+
+      SPEECH_TEMPO: ${{ secrets.SPEECH_TEMPO || '1.0' }}
+      RENDER_TITLE_FONT: Bebas Neue
+      RENDER_BODY_FONT: Noto Sans
+      RENDER_MONO_FONT: JetBrains Mono
+      YT_TTS_PROVIDER: ${{ secrets.YT_TTS_PROVIDER || 'openai' }}
+      YT_TTS_VOICE: ${{ github.event.inputs.tts_voice || secrets.YT_TTS_VOICE || secrets.OPENAI_TTS_VOICE || 'nova' }}
+      YT_DEFAULT_CATEGORY: vulkanologi
+      YT_TIME_ZONE: America/New_York
+      YT_DAILY_GENERATE_LIMIT: ${{ secrets.YT_DAILY_GENERATE_LIMIT || '2' }}
+      YT_DURATION_SEC: ${{ github.event.inputs.duration || secrets.YT_DURATION_SEC || '900' }}
+      YT_SCENE_COUNT: ${{ github.event.inputs.scenes || secrets.YT_SCENE_COUNT || '27' }}
+      YT_DURATION_TOLERANCE_SEC: ${{ secrets.YT_DURATION_TOLERANCE_SEC || '4' }}
+      YT_WORKFLOW_FILE: yt-longform-generate.yml
+      YT_FORMAT_TYPE: ${{ github.event.inputs.format_type || secrets.YT_FORMAT_TYPE || '' }}
+      YT_STRICT_REMOTE: ${{ secrets.YT_STRICT_REMOTE || 'false' }}
+      GITHUB_TOKEN: ${{ github.token }}
+
+      YOUTUBE_UPLOAD_ENABLED: ${{ secrets.YOUTUBE_UPLOAD_ENABLED || 'true' }}
+      YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+      YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+      YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+      YOUTUBE_PRIVACY_STATUS: private
+      YOUTUBE_SCHEDULED_PUBLISH_ENABLED: "true"
+      YOUTUBE_SCHEDULED_PUBLISH_TIME: "20:30"
+      YOUTUBE_SCHEDULED_PUBLISH_TIME_ZONE: America/New_York
+      YOUTUBE_SCHEDULED_PUBLISH_LEAD_MINUTES: "30"
+      YOUTUBE_DEFAULT_LANGUAGE: ${{ secrets.YOUTUBE_DEFAULT_LANGUAGE || 'id' }}
+      YOUTUBE_DEFAULT_AUDIO_LANGUAGE: ${{ secrets.YOUTUBE_DEFAULT_AUDIO_LANGUAGE || 'id' }}
+      YOUTUBE_LOCALIZATION_ENABLED: ${{ secrets.YOUTUBE_LOCALIZATION_ENABLED || 'true' }}
+      YOUTUBE_LOCALIZATION_LANGUAGES: en,es,pt-BR,hi,ar,fr,de,ja,ko,zh-CN,ru,it,tr,vi,th
+      YOUTUBE_CATEGORY_ID: ${{ secrets.YOUTUBE_CATEGORY_ID || '27' }}
+      YOUTUBE_TAGS: ${{ secrets.YOUTUBE_TAGS || 'BanyakTau,Edukasi,Pengetahuan,Sains,Sejarah,Teknologi' }}
+      THUMBNAIL_GENERATION_ENABLED: "true"
+      YOUTUBE_CUSTOM_THUMBNAIL_ENABLED: "true"
+      YOUTUBE_CAPTION_UPLOAD_ENABLED: "true"
+      YOUTUBE_THUMBNAIL_UPLOAD_ATTEMPTS: ${{ secrets.YOUTUBE_THUMBNAIL_UPLOAD_ATTEMPTS || '1' }}
+      YOUTUBE_DAILY_UPLOAD_LIMIT: ${{ secrets.YOUTUBE_DAILY_UPLOAD_LIMIT || '2' }}
+      YOUTUBE_PLAYLISTS: ${{ secrets.YOUTUBE_PLAYLISTS || '' }}
+      YOUTUBE_DEFAULT_PLAYLIST_ID: ${{ secrets.YOUTUBE_DEFAULT_PLAYLIST_ID || '' }}
+
+      PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+      PEXELS_OVERLAY_ENABLED: ${{ secrets.PEXELS_OVERLAY_ENABLED || 'true' }}
+      PEXELS_OVERLAY_OPACITY: ${{ secrets.PEXELS_OVERLAY_OPACITY || '0.55' }}
+      PEXELS_BLACK_KEY_SIMILARITY: ${{ secrets.PEXELS_BLACK_KEY_SIMILARITY || '0.16' }}
+      PEXELS_BLACK_KEY_BLEND: ${{ secrets.PEXELS_BLACK_KEY_BLEND || '0.08' }}
+
+      PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY || '57557703-d564c9ce2e7c62284ab235767' }}
+      PIXABAY_ENABLED: ${{ secrets.PIXABAY_ENABLED || 'true' }}
+
+      SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
+
+      YOUTUBE_DATA_API_KEY: ${{ secrets.YOUTUBE_DATA_API_KEY }}
+      YOUTUBE_TRENDING_ENABLED: ${{ secrets.YOUTUBE_TRENDING_ENABLED || 'true' }}
+      YOUTUBE_TRENDING_REGION: US
+      YT_SPACE_TOPIC_RATIO: "0.15"
+      YT_TOPIC_CATEGORY_WINDOW: ${{ secrets.YT_TOPIC_CATEGORY_WINDOW || '30' }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Restore topic history
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            data/items.json
+            data/memory.json
+          key: yt-longform-history-${{ github.run_id }}
+          restore-keys: |
+            yt-longform-history-
+
+      - name: Check FFmpeg
+        id: ffmpeg
+        shell: bash
+        run: |
+          if command -v ffmpeg >/dev/null 2>&1 && command -v ffprobe >/dev/null 2>&1; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            ffmpeg -version | head -n 1
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install FFmpeg
+        if: steps.ffmpeg.outputs.ready != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Install dependencies
+        run: npm ci --no-audit --fund=false
+
+      - name: Validate source
+        run: npm run check
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Preflight
+        run: npm run preflight
+
+      - name: Generate longform video
+        env:
+          # Input user dilewatkan sebagai ENV (data), bukan diinterpolasi ke shell source.
+          # Mencegah script injection: nilai "$VAR" ber-quote tidak pernah dieksekusi sebagai perintah.
+          INPUT_TOPIC: ${{ github.event.inputs.topic }}
+          INPUT_CATEGORY: ${{ github.event.inputs.category }}
+          INPUT_DURATION: ${{ github.event.inputs.duration }}
+          INPUT_SCENES: ${{ github.event.inputs.scenes }}
+          INPUT_TTS_PROVIDER: ${{ github.event.inputs.tts_provider }}
+          INPUT_TTS_VOICE: ${{ github.event.inputs.tts_voice }}
+          INPUT_IMAGE_QUALITY: ${{ github.event.inputs.image_quality }}
+          INPUT_RESOLUTION: ${{ github.event.inputs.resolution }}
+          INPUT_FORMAT_TYPE: ${{ github.event.inputs.format_type }}
+          INPUT_FORCE: ${{ github.event.inputs.force }}
+        run: |
+          npm run run:once -- \
+            --topic "$INPUT_TOPIC" \
+            --category "${INPUT_CATEGORY:-vulkanologi}" \
+            --duration "${INPUT_DURATION:-900}" \
+            --scenes "${INPUT_SCENES:-27}" \
+            --tts-provider "$INPUT_TTS_PROVIDER" \
+            --tts-voice "$INPUT_TTS_VOICE" \
+            --image-quality "$INPUT_IMAGE_QUALITY" \
+            --resolution "$INPUT_RESOLUTION" \
+            --format-type "$INPUT_FORMAT_TYPE" \
+            --force "$INPUT_FORCE"
+
+      - name: Save topic history
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            data/items.json
+            data/memory.json
+          key: yt-longform-history-${{ github.run_id }}

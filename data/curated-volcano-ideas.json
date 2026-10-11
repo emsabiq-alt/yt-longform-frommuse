@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "updatedAt": "2026-09-20T17:00:00.000Z",
+  "category": "vulkanologi",
+  "niche": "Vulkanologi, Megathrust & Sains Bencana Bumi Nusantara",
+  "priorityIdeas": [
+    {
+      "id": "volc-01",
+      "title": "Tambora 1815: Saat Gunung Indonesia Bekukan Dunia",
+      "topic": "Bagaimana Letusan Tambora 1815 Bisa Membekukan Eropa dan Amerika",
+      "category": "vulkanologi",
+      "formatType": "timeline_evolutif",
+      "viralAngle": "before-after",
+      "hook": "Tahukah kamu bahwa satu letusan gunung di Sumbawa pernah menghapus musim panas di belahan bumi lain?",
+      "why": "Letusan terbesar dalam sejarah modern dengan dampak iklim global ekstrem (Tahun Tanpa Musim Panas)."
+    },
+    {
+      "id": "volc-02",
+      "title": "Jika Toba Meletus Lagi: Skenario 30 Hari Pertama",
+      "topic": "Apa yang Terjadi Jika Supervolcano Danau Toba Meletus Lagi Hari Ini",
+      "category": "vulkanologi",
+      "formatType": "eksperimen_berpikir",
+      "viralAngle": "existential-threat",
+      "hook": "Bagaimana jika kaldera raksasa di bawah Danau Toba tiba-tiba aktif kembali hari ini?",
+      "why": "Format simulasi kiamat spekulatif berbasis data yang menghasilkan retensi dan watch time tertinggi."
+    },
+    {
+      "id": "volc-03",
+      "title": "Kawah Ijen: Rahasia Danau Asam Paling Maut di Dunia",
+      "topic": "Mengapa Kawah Ijen Memiliki Api Biru dan Danau Asam Paling Mencekam",
+      "category": "vulkanologi",
+      "formatType": "fenomena_alam",
+      "viralAngle": "curiosity-hook",
+      "hook": "Mengapa kawah di ujung timur Jawa ini memiliki danau yang bisa melarutkan logam dalam hitungan menit?",
+      "why": "Fenomena geologi ekstrem yang sangat unik di dunia (api biru & danau asam belerang murni)."
+    },
+    {
+      "id": "volc-04",
+      "title": "Palung Jawa: Jurang 7.000 Meter Pengunci Gempa Bumi",
+      "topic": "Mengapa Palung Jawa Menjadi Titik Terdalam Pengunci Gempa Bumi Raksasa",
+      "category": "geologi",
+      "formatType": "dokumenter_klasik",
+      "viralAngle": "underdog-force",
+      "hook": "Di kedalaman 7.000 meter di bawah Samudra Hindia, ada jurang raksasa yang mengendalikan takdir Pulau Jawa.",
+      "why": "Zona subduksi megathrust dan titik terdalam samudra Indonesia dengan taruhan geologis sangat besar."
+    },
+    {
+      "id": "volc-05",
+      "title": "Misteri Lumpur Lapindo: Kenapa Tak Pernah Berhenti?",
+      "topic": "Mengapa Lumpur Lapindo Terus Menyembur Selama Belasan Tahun",
+      "category": "geologi",
+      "formatType": "investigasi_misteri",
+      "viralAngle": "hidden-mechanism",
+      "hook": "Sudah lebih dari 18 tahun semburan lumpur ini tidak pernah berhenti. Apa yang sebenarnya terjadi di bawah sana?",
+      "why": "Tragedi geologi mud volcano terpanjang dalam sejarah nusantara yang masih menimbulkan perdebatan sains."
+    },
+    {
+      "id": "volc-06",
+      "title": "Samalas 1257: Letusan Lombok yang Mengubah Dunia",
+      "topic": "Bagaimana Letusan Gunung Samalas 1257 di Lombok Mengubah Iklim Planet Bumi",
+      "category": "vulkanologi",
+      "formatType": "investigasi_misteri",
+      "viralAngle": "history-reveal",
+      "hook": "Selama 700 tahun, ilmuwan dunia bingung mencari letusan misterius yang abunya sampai ke kutub, sampai mereka menatap Lombok.",
+      "why": "Misteri arkeologi sains global yang akhirnya terpecahkan di Indonesia."
+    },
+    {
+      "id": "volc-07",
+      "title": "Gunung Bawah Laut Indonesia: Monster di Dasar Samudra",
+      "topic": "Bagaimana Gunung Api Bawah Laut Indonesia Mengancam Tsunami Kilat",
+      "category": "vulkanologi",
+      "formatType": "fenomena_alam",
+      "viralAngle": "existential-threat",
+      "hook": "Di bawah perairan Indonesia yang tenang, terdapat puncak gunung api aktif yang siap meletus kapan saja.",
+      "why": "Bahaya tsunami vulkanik bawah laut seperti Hunga Tonga dan Banua Wuhu."
+    },
+    {
+      "id": "volc-08",
+      "title": "Sesar Lembang Terkunci: Ancaman Senyap di Bawah Kota",
+      "topic": "Mengapa Sesar Lembang yang Terkunci Menjadi Ancaman Paling Mengkhawatirkan",
+      "category": "geologi",
+      "formatType": "fenomena_alam",
+      "viralAngle": "urgent-warning",
+      "hook": "Patahan aktif sepanjang 29 kilometer ini sedang terkunci rapat di utara kota besar. Kapan energinya lepas?",
+      "why": "Patahan darat aktif yang dekat dengan pusat populasi, memicu kesadaran mitigasi bencana publik."
+    }
+  ]
+}
