@@ -457,7 +457,8 @@ function assertOpenAi() {
 
 // FROMMUSE: story/chat boleh memakai endpoint berbeda (Hermes/9Router).
 // Key mengikuti fallback runtime ke OPENAI_API_KEY agar stub/pola lama tetap jalan.
-function storyApiKey() {
+// Diekspor agar gate "AI aktif?" di story-engine/deepseek memakai kunci story.
+export function storyApiKey() {
   return config.story.apiKey || config.openai.apiKey;
 }
 

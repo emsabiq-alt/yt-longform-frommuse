@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { config, paths } from "./config.js";
 import { estimateTotalCost } from "./cost.js";
-import { requestKnowledgeJson } from "./openai.js";
+import { requestKnowledgeJson, storyApiKey } from "./openai.js";
 import { fetchWikipediaFacts } from "./wikipedia.js";
 import { clamp, cleanText, createId, nowIso } from "./util.js";
 import { pickFreshTopic } from "./topic-engine.js";
@@ -208,10 +208,10 @@ export async function createLongformDraft(rawInput) {
 
   const input = normalizeInput(seed);
 
-  // Grounding fakta dari Wikipedia (gratis, tanpa API key). Hanya saat OpenAI aktif
+  // Grounding fakta dari Wikipedia (gratis, tanpa API key). Hanya saat story AI aktif
   // karena fallback offline memakai naskah template yang tidak memanfaatkan fakta.
   let wiki = null;
-  if (config.openai.apiKey) {
+  if (storyApiKey()) {
     try {
       wiki = await fetchWikipediaFacts(input.topic);
       if (wiki?.sources?.length) {
@@ -222,14 +222,18 @@ export async function createLongformDraft(rawInput) {
     }
   }
 
-  const promptText = buildPrompt(input, wiki);
   let plan;
   let source = "offline";
+  let promptText = "";
 
-  if (config.openai.apiKey) {
+  if (storyApiKey()) {
     try {
-      console.log(`[Story Longform] Meminta naskah AI untuk topik: "${input.topic}" (${input.durationSec}s, ${input.sceneCount} scenes)...`);
-      plan = await requestKnowledgeJson(promptText);
+      // Naskah diminta per segmen kecil (chunking), bukan sekaligus, karena
+      // request raksasa sekaligus hang di 9Router. Revisi panjang naskah
+      // dilakukan per segmen di dalam requestChunkedPlan().
+      const chunked = await requestChunkedPlan(input, wiki);
+      plan = chunked.plan;
+      promptText = chunked.promptText;
       source = "openai";
     } catch (error) {
       console.warn(`[Story Longform] Gagal memanggil OpenAI, menggunakan fallback offline: ${error.message}`);
@@ -254,36 +258,9 @@ export async function createLongformDraft(rawInput) {
     }
   }
 
-  const selectedTitle = normalized.title;
-  const words = sceneWordRange(input.sceneCount, input.formatType, input.durationSec);
-  // Bila durationLocked aktif, pengayaan audio (enrichLongformDraft) akan menambal durasi
-  // hingga target tercapai. Revisi draft awal hanya dipicu bila narasi jauh di bawah fondasi scene.
-  const minimumNarrationWords = input.durationLocked
-    ? Math.min(words.minimumWords, Math.max(words.narratedScenes * 35, Math.round(words.minimumWords * 0.55)))
-    : words.minimumWords;
-  for (let attempt = 1;
-    config.openai.apiKey && narrationWordCount(normalized) < minimumNarrationWords && attempt <= MAX_NARRATION_REVISION_ATTEMPTS;
-    attempt++) {
-    const currentWords = narrationWordCount(normalized);
-    try {
-      const expandedPlan = await requestKnowledgeJson([
-        promptText,
-        "",
-        "REVISI WAJIB:",
-        `Percobaan revisi ${attempt}/${MAX_NARRATION_REVISION_ATTEMPTS}. Naskah sebelumnya hanya ${currentWords} kata.`,
-        `Tulis ulang dengan minimal ${minimumNarrationWords} kata narasi yang benar-benar dibacakan TTS. Jangan mengembalikan naskah sebelum jumlah minimum tercapai.`,
-        `Hitung minimum ini hanya dari ${words.narratedScenes} scene image dan summary. Scene reaction juga dibacakan TTS, tetapi tetap pendek dan tidak dihitung dalam minimum narasi utama ini.`,
-        `Karena itu setiap scene image HARUS ${words.imageMin}-${words.imageMax} kata dan scene summary ${words.summaryMin}-${words.summaryMax} kata. Jangan menulis lebih pendek dari batas bawah itu.`,
-        `Pertahankan tepat jumlah scene dan pola format ${input.formatType}, dengan scene terakhir summary.`
-      ].join("\n"));
-      normalized = normalizePlan(expandedPlan, input);
-      // Revisi panjang naskah tidak boleh menghapus judul yang sudah dipilih
-      // Title Engine saat respons revisi AI tidak menyertakan title.
-      normalized.title = selectedTitle || normalized.title;
-    } catch (error) {
-      console.warn(`[Story Longform] Revisi panjang naskah ${attempt}/${MAX_NARRATION_REVISION_ATTEMPTS} gagal: ${error.message}`);
-    }
-  }
+  // Revisi panjang naskah sudah dilakukan per segmen di dalam requestChunkedPlan()
+  // (tiap segmen wajib mencapai batas bawah katanya sebelum lanjut), sehingga
+  // revision loop global yang me-request seluruh naskah sekaligus tidak dipakai lagi.
 
   // Gerbang fail-closed: naskah fallback offline atau naskah yang tetap jauh di
   // bawah target durasi hanya menghasilkan video pendek. Berhenti di sini,
@@ -533,215 +510,308 @@ function trendPromptBlock(trend) {
   ].join("\n");
 }
 
-function buildPrompt(input, wiki = null) {
-  const categoryNote = simplifyForLayAudience(storyNoteFor(input.category), 700);
-  const variation = simplifyForLayAudience(pick(STORY_VARIATIONS), 400);
-  const formatDesc = simplifyForLayAudience(formatTypeDescription(input.formatType), 500);
-  const formatCue = simplifyForLayAudience(formatTypeNarrativeCue(input.formatType), 500);
-  const scenePattern = buildScenePattern(input.sceneCount, input.formatType).join(", ");
-  const words = sceneWordRange(input.sceneCount, input.formatType, input.durationSec);
+// ============================================================================
+// Story chunking — naskah diminta per segmen kecil, bukan sekaligus.
+//
+// Request storyboard raksasa sekaligus terbukti HANG di 9Router
+// (4x timeout 180 detik untuk 20 scene pada 2026-10-11). Request sedang
+// (~1500 token output) ke endpoint yang sama sukses dalam 27 detik, jadi:
+//   1. Outline: 1 request kecil -> judul, hook, ringkasan, daftar bab.
+//   2. Segmen: tiap request hanya <=4 scene (<~2000 token output), membawa
+//      ringkasan segmen sebelumnya agar alur nyambung & tidak berulang.
+//   3. Gabung: semua scene digabung jadi satu plan lalu melewati
+//      normalizePlan() yang sama seperti dulu (kontrak downstream tidak berubah).
+// ============================================================================
+const STORY_CHUNK_MAX_SCENES = 4;
+const STORY_CHUNK_TARGET_CHAPTERS = 8;
+
+const DEFAULT_CHAPTER_NAMES = [
+  "Pembuka", "Konteks Awal", "Akar Masalah", "Bukti Pertama",
+  "Fakta Lanjutan", "Sudut Pandang Lain", "Akibatnya", "Penutup"
+];
+
+function buildWikiBlock(wiki) {
+  if (!wiki?.facts) return "";
+  return [
+    "",
+    "FAKTA REFERENSI DARI WIKIPEDIA (jadikan dasar fakta, jangan dibantah):",
+    wiki.facts,
+    "Aturan: nama/tanggal/angka/tempat IKUTI referensi ini. Boleh menyusun ulang jadi narasi menarik + analogi. Jangan mengarang angka/nama yang tidak ada di referensi. Isi factCheckNote bahwa fakta inti dirujuk dari Wikipedia."
+  ].join("\n");
+}
+
+/**
+ * Prompt outline: 1 request kecil (output ~500 token) untuk kerangka cerita.
+ * Rentang scene per bab dihitung lokal (deterministik), AI hanya memberi
+ * nama + fokus tiap bab agar tidak ada celah/overlap scene.
+ */
+export function buildOutlinePrompt(input, wiki = null) {
+  const categoryNote = simplifyForLayAudience(storyNoteFor(input.category), 400);
   const viralAngle = getViralAngleById(input.viralAngleId);
   const viralBlock = simplifyForLayAudience(
-    viralAngleSummary(viralAngle) || `${input.viralAngleLabel || "angle viral"}: Gunakan kemasan yang membuat topik terasa punya konflik, misteri, taruhan, atau akibat yang jelas.`,
-    1400
+    viralAngleSummary(viralAngle) || `${input.viralAngleLabel || "angle viral"}: kemas topik agar terasa punya konflik, misteri, taruhan, atau akibat yang jelas.`,
+    900
   );
-  const wikiBlock = wiki?.facts
-    ? [
-        "",
-        "FAKTA REFERENSI DARI WIKIPEDIA (jadikan dasar fakta, jangan dibantah):",
-        wiki.facts,
-        "Aturan pemakaian fakta di atas:",
-        "- Untuk nama, tanggal, angka, dan tempat, IKUTI referensi ini; jangan menyebut data yang bertentangan.",
-        "- Boleh menyusun ulang menjadi narasi yang menarik serta menambah analogi, transisi, dan konteks umum yang aman.",
-        "- Jika sebuah detail tidak ada di referensi, hindari mengarang angka atau nama spesifik yang belum tentu benar.",
-        "- Isi factCheckNote bahwa fakta inti dirujuk dari Wikipedia dan tetap perlu verifikasi akhir sebelum publikasi."
-      ].join("\n")
-    : "";
-  const trendBlock = trendPromptBlock(input.trend);
   return [
-    `FORMAT VIDEO: ${input.formatType}. ${formatDesc}`,
-    `PANDUAN NARASI FORMAT: ${formatCue}`,
-    `POLA SCENE WAJIB: ${scenePattern}. Scene terakhir wajib summary.`,
-    "Buat naskah video dokumenter horizontal landscape (16:9) dalam Bahasa Indonesia untuk channel BanyakTau.",
-    "Video berdurasi panjang, jadi bahasanya harus runtut, kaya informasi, dan tetap mudah diikuti orang awam.",
-    "GAYA BAHASA DAN PENYAJIAN (WAJIB DIPATUHI):",
-    "  - Gunakan gaya bahasa populer yang dinamis, seru, dan berbobot layaknya video essay kelas dunia seperti Lemmino, Vox, atau Veritasium.",
-    "  - DILARANG MEMBAHAS FAKTA ELEMENTER / TRIVIA ANAK SEKOLAH DASAR:",
-    "    * Penonton adalah orang dewasa dan penggemar sains yang cerdas. JANGAN buang waktu dengan etimologi nama sepele (contoh terlarang: 'kenapa Anak Krakatau disebut anak?', 'kenapa pulau ini dinamakan X?'), definisi dasar kamus ('apa itu gunung api?', 'apa itu tsunami?', 'kenapa magma panas?'), atau fakta umum yang sudah diketahui semua orang.",
-    "    * Jangan pernah memasukkan pertanyaan atau adegan yang terdengar seperti buku pelajaran SD.",
-    "  - GAYA PERTANYAAN WAJIB KOMPREHENSIF DAN MEMICU PENASARAN TINGGI (HIGH STAKES):",
-    "    * Jangan gunakan pertanyaan polos/dangkal di judul, pembuka bab, beatPurpose, maupun scene reaction.",
-    "    * Ajukan pertanyaan yang menantang akal sehat, anomali fisika/geologi, paradoks sains, atau kalkulasi ancaman berskala besar.",
-    "    * Contoh SALAH (terlalu basic): 'Kenapa Anak Krakatau disebut anak?', 'Apa itu lempeng bumi?', 'Bagaimana gunung meletus?'",
-    "    * Contoh BENAR (komprehensif & mendalam): 'Bagaimana reruntuhan letusan 1883 melahirkan kubah magma baru di bawah laut?', 'Mengapa patahan samudra ini mampu menahan tekanan lempeng selama ratusan tahun sebelum melepaskannya sekaligus?', 'Berapa ratus triliun meter kubik gas bertekanan tinggi yang terperangkap di dapur magma?'",
-    "  - HINDARI istilah akademis, sosiologis, atau teoritis yang berbelit-belit dan terkesan klise. Pakai benda, kejadian, angka, dan contoh yang konkret.",
-    "  - Penonton ingin tahu fakta unik dan jawabannya secara langsung, sederhana, dan konkret.",
-    "  - Buat narasi yang to-the-point, jelas, dan fokus pada fakta unik/informasi 'daging' yang memancing rasa penasaran penonton.",
-    "  - Tulis seperti sedang bercerita ke teman yang penasaran: kalimat pendek-sedang (rata-rata di bawah 20 kata), aktif, dan hangat. Sapa penonton dengan 'kamu' bila perlu, jangan 'Anda'.",
-    "  - Setiap fakta rumit WAJIB langsung disusul satu perbandingan sehari-hari yang bisa dibayangkan (ukuran, berat, waktu, harga, jarak) — misal 'setebal rambut manusia', 'selama satu episode sinetron', 'seberat dua ekor gajah'.",
-    "  - Variasikan panjang dan bentuk kalimat antar scene. Jangan setiap scene dibuka dengan pola yang sama; kalimat seragam membuat penonton bosan meski isinya benar.",
-    "  - Kata asing atau istilah teknis boleh dipakai maksimal sekali per scene, dan wajib dijelaskan dalam kalimat yang sama dengan bahasa sehari-hari.",
-    "  - DILARANG memakai kata: implikasi, mekanisme, signifikan, fundamental, kompleksitas, eksponensial, korelasi, paradigma, esensial, krusial, dinamika, konteks sosial. Ganti dengan padanan sehari-hari.",
-    "Hindari gaya bahasa lebay atau pembuka Shorts yang berisik. Penonton video panjang mencari detail faktual ('isinya daging semua').",
-    "Struktur cerita harus punya pembuka yang kuat, isi yang maju langkah demi langkah, bagian paling penting yang terasa jelas, dan penutup yang mudah diingat.",
-    "Setiap scene harus berisi narasi yang dibacakan oleh TTS dan teks layar (screenText) yang sinkron. Tulis narasi agar mudah dibaca TTS: angka dan satuan ditulis dengan kata-kata (misal 'tiga puluh derajat Celcius', 'seribu kilometer per jam'), hindari singkatan dan simbol seperti %, Rp, AI, 3D, &, kecuali sangat umum.",
-    "PENTING UNTUK TTS: Tulis narasi sebagai kalimat-kalimat yang MENGALIR KONTINU. HINDARI titik koma (;), titik tiga (...), tanda kurung, dan tanda kutip karena memicu jeda panjang saat dibacakan. Gunakan koma atau kata sambung ('dan', 'lalu', 'sementara', 'karena') untuk menghubungkan klausa. Satu kalimat = satu napas bicara yang mulus.",
-    "Scene reaction WAJIB berupa satu kalimat PERTANYAAN penasaran / cliffhanger singkat (8-16 kata) yang DIAKHIRI DENGAN TANDA TANYA (?). Contoh: 'Tapi benarkah letusan purba ini yang memicu zaman es?' atau 'Lalu apa yang sebenarnya disembunyikan di balik peristiwa ini?'. DILARANG KERAS mengisi screenText atau narration scene reaction dengan judul babak, nomor scene, atau label konsep generik seperti 'Fakta 1', 'Fakta Perubahan', 'Babak 24', dsb. Teks pertanyaan ini yang akan muncul langsung di layar.",
-    "Narasi scene reaction juga dibacakan TTS. Buat pertanyaan singkat yang langsung mengantar ke informasi berikutnya tanpa meminta jeda hening.",
-    `Setiap scene image wajib memiliki ${words.imageMin}-${words.imageMax} kata narasi. Scene summary wajib memiliki ${words.summaryMin}-${words.summaryMax} kata narasi.`,
-    "Scene reaction tidak memerlukan visualKeywords atau imagePrompt. Isi reactionCue dengan ekspresi yang cocok: heran, kaget, skeptis, menemukan petunjuk, atau setuju.",
-    "Scene terakhir wajib bertipe summary dengan screenText 'Ringkasan Inti' dan narasi kesimpulan yang tidak kosong.",
-    "Buat storyboard longform mendalam: delapan hingga sembilan bab yang berurutan, contoh urutan: pertanyaan utama, konteks awal, akar masalah/sebab, bukti pertama, fakta/data lanjutan, sudut pandang pembanding, dampak/akibat, lalu jawaban dan kesimpulan. Sesuaikan susunan dengan format dan topik, tapi tetap pecah jadi 8-9 bab agar tiap bab punya fokus sempit dan thumbnail chapter YouTube lebih bervariasi.",
-    "Perkaya setiap bab dengan bukti, contoh konkret, detail sebab-akibat, atau batas penjelasan yang didukung sumber. Pertahankan kedalaman pembahasan; jangan meringkas bab menjadi satu kalimat untuk mengejar jumlah scene.",
-    "Storyboard tidak boleh memakai judul layar generik berulang. Tulis screenText yang spesifik sesuai fakta scene, bukan label konsep umum.",
+    "Buat KERANGKA (outline) video dokumenter horizontal (16:9) Bahasa Indonesia untuk channel BanyakTau.",
+    `Topik: ${input.topic}`,
+    `Kategori: ${input.category}. ${categoryNote}`,
+    `Sudut pandang: ${input.angle}`,
+    `Format: ${simplifyForLayAudience(formatTypeDescription(input.formatType), 300)}`,
+    `Kemasan viral: ${simplifyForLayAudience(input.viralAngleLabel || viralAngle?.label || "", 120)}`,
+    `${viralBlock}`,
+    `Total scene video ini: ${input.sceneCount} scene, durasi ${input.durationSec} detik.`,
+    `Bagi cerita menjadi ${STORY_CHUNK_TARGET_CHAPTERS} bab berurutan (contoh alur: pertanyaan utama, konteks awal, akar masalah/sebab, bukti pertama, fakta/data lanjutan, sudut pandang pembanding, dampak/akibat, jawaban dan kesimpulan). Sesuaikan susunan dengan topik.`,
+    "Setiap bab: nama singkat yang SPESIFIK sesuai topik (bukan 'Bab 1'), dan 1-2 kalimat fokus pembahasan yang membedakannya dari bab lain.",
+    buildWikiBlock(wiki),
+    trendPromptBlock(input.trend),
     "",
-    "ANTI-PENGULANGAN NARASI (WAJIB DIPATUHI):",
-    "- Jaga pembahasan padat sesuai durasi target. Dahulukan penjelasan inti dan bukti yang relevan; hilangkan pengantar panjang, basa-basi, dan rangkuman berulang di tengah cerita.",
-    "- Penuhi anggaran kata dengan informasi terverifikasi yang membantu menjawab topik. Jangan menambah pengulangan, klaim rekaan, atau pertanyaan pengulur waktu untuk mengejar durasi.",
-    "- Setiap scene WAJIB menambahkan informasi, fakta, data, contoh, atau cara melihat BARU yang BELUM PERNAH disebut di scene manapun sebelumnya.",
-    "- DILARANG mengulang poin yang sama dengan kata-kata berbeda. Jika scene 3 sudah menjelaskan 'kebijakan yang menghambat', scene 4 TIDAK BOLEH mengatakan 'regulasi yang tidak efektif' karena itu poin yang sama.",
-    "- Setiap scene harus membuat penonton berkata 'wah saya baru tahu ini'. Hindari informasi yang sudah umum diketahui.",
-    "- Gunakan DATA SPESIFIK: angka, tahun, nama orang/tempat/organisasi, perbandingan konkret. Jangan narasi generik yang bisa ditempelkan ke topik apapun.",
-    "- AKURASI TAHUN/ANGKA WAJIB: sebutkan tahun/tanggal/angka HANYA jika kamu benar-benar yakin itu fakta sejarah yang tepat (didukung sumber di atas atau pengetahuan umum yang solid). JANGAN mengarang atau menebak tahun demi terdengar spesifik — satu tahun yang salah merusak kredibilitas seluruh video. Kalau ragu-ragu persisnya, gunakan frasa relatif yang tetap konkret (misal 'awal abad ke-20', 'beberapa dekade setelah itu', 'menjelang akhir Perang Dunia Kedua') daripada tahun pasti yang berisiko keliru.",
-    "- Progresi narasi: scene awal = latar belakang unik, scene tengah = cara kerja/bukti/data baru di setiap scene, scene akhir = arti atau akibat yang belum dibahas.",
-    "- Jangan memakai screenText atau beatPurpose yang sama persis di dua scene berbeda. Gunakan chapter yang sama untuk beberapa scene berurutan yang membahas satu bagian cerita; ubah chapter hanya ketika pembahasan berpindah.",
-    "",
-    "KNOWLEDGE BEAT (WAJIB untuk setiap scene image/summary):",
-    "- Setiap scene harus menjawab TEPAT SATU pertanyaan implisit. Tulis pertanyaan itu di field beatPurpose (misal beatPurpose: 'menjawab: kenapa kapal besi bisa mengapung?').",
-    "- Struktur narasi tiap scene: SATU klaim inti + SATU bukti/contoh/angka konkret yang mendukungnya. Jangan menumpuk tiga klaim dangkal dalam satu scene; lebih baik satu klaim yang dibuktikan tuntas.",
-    "- Hubungkan scene dengan akibat, bukti, atau gagasan berikutnya secara alami. Gunakan pertanyaan lanjutan hanya bila membantu alur; jangan menutup setiap scene dengan cliffhanger yang berulang.",
-    "",
-    "PEMBUKA BAB (RETENSI):",
-    "- Scene PERTAMA dari setiap chapter baru (field chapter berubah) WAJIB membuka dengan pertanyaan atau ajakan menebak di 1-2 kalimat pertama narasinya (misal 'Coba tebak berapa lama waktu yang dibutuhkan...' atau 'Pertanyaannya, kenapa hal itu bisa terjadi?').",
-    "- Jawaban pertanyaan pembuka bab TIDAK boleh langsung diberikan di kalimat berikutnya; ungkap secara bertahap sepanjang bab itu.",
-    "- Scene reaction yang berada di batas bab difungsikan sebagai checkpoint tebakan: pertanyaan singkat yang jawabannya dibuka di scene sesudahnya.",
-    "",
-    "SPOTLIGHT (WAJIB diisi pada scene image yang memenuhi syarat, target 18-22 scene tersebar dari awal sampai bab terakhir):",
-    "- Untuk scene yang punya satu fakta paling layak diingat (angka, tahun, nama tokoh, atau istilah kunci), tambahkan field spotlight.",
-    "- Format: spotlight: { type:'keypoint'|'figure'|'compare', label, sublabel, phrase } (keypoint/figure) atau { type:'compare', label, value, compareLabel, compareValue, unit, phrase } (compare).",
-    "- label = fakta itu sendiri, maksimal 5 kata (misal '1.200 kilometer per jam' atau 'Ibnu Sina'). sublabel = penjelas singkat maksimal 6 kata (misal peran/jabatan tokoh), boleh kosong.",
-    "- type 'figure' WAJIB dipakai jika label adalah nama orang/tokoh yang disebut di narration; selain itu gunakan 'keypoint'.",
-    "- type 'figure': SELALU isi sublabel dengan jabatan/peran tokoh (misal 'Menteri ESDM', 'Gubernur Jawa Barat', 'Direktur Utama PLN').",
-    "- type 'compare' dipakai KHUSUS saat narasi membandingkan dua besaran secara eksplisit (dua nama/subjek + dua angka, atau pola 'X kali lebih besar/dahsyat/panjang dari Y'): isi label (nama subjek pertama, maks 3 kata), value (angka subjek pertama), compareLabel (nama subjek pembanding, maks 3 kata), compareValue (angka subjek pembanding), unit (satuan singkat seperti 'km', 'hari', 'ton'; untuk pola 'X kali lebih besar dari Y' pakai value=X, compareValue=1, unit='x'). Kedua angka WAJIB benar-benar disebut/tersirat eksplisit di narasi; JANGAN mengarang angka pembanding kalau narasi tidak menyebutnya — kalau ragu, pakai 'keypoint' saja.",
-    "- phrase = potongan 4-8 kata yang DISALIN PERSIS dari narration scene itu, tepat pada bagian saat nama tokoh atau fakta tersebut diucapkan. Jangan parafrase; kalau tidak bisa menyalin persis, hilangkan field spotlight untuk scene itu.",
-    "- Jangan memberi spotlight pada scene reaction atau summary.",
-    "",
-    "MOCKUP GADGET (SMARTPHONE / TABLET OVERLAY):",
-    "- Sebarkan 6-8 scene dengan referensi relevan di seluruh bab. Sertakan mediaSource dari sumber yang tersedia agar tampil memakai template mockup smartphone/tablet milik pengguna. Mockup akan muncul di atas latar video B-roll (tidak tampil bersamaan dengan gambar lain di layar). Foto tokoh, benda, atau dokumen di dalam mockup wajib unik dan sesuai dengan narasi saat itu. Jangan mengarang sumber atau menempelkan artikel yang tidak relevan.",
-    `CATATAN KATEGORI (${input.category}): ${categoryNote}`,
-    `VARIASI CERITA UNTUK NASKAH INI: ${variation}`,
-    `KEMASAN VIRAL UTAMA:\n${viralBlock}`,
-    "Gunakan kemasan viral ini sebagai tulang punggung judul, hook 30 detik pertama, dan transisi antar babak. Jangan hanya menempelkannya di judul.",
     "Kembalikan JSON valid saja dengan format:",
-    "{ title, hook, flashForwardSceneIndex, summary, importantPoints:[string], factCheckNote, scenes:[{ index, sceneType:'image'|'reaction'|'summary', durationSec, narration, screenText, visualKeywords, imagePrompt, visualSegments:[{ imagePrompt, visualKeywords, pexelsQuery, mustMatchTerms:[string], narrativeContext }], chapter, beatPurpose, reactionCue, spotlight, mediaSource:{ outlet, headline, url, publishedAt } }] }",
+    "{ title, hook, flashForwardSceneIndex, summary, importantPoints:[string], factCheckNote, chapterPlan:[{ name, focus }] }",
+    "title: judul singkat maksimal 60 karakter, spesifik, memancing penasaran (judul final disempurnakan terpisah).",
+    "hook: SATU-DUA kalimat teaser 'flash-forward' 15-25 kata — ungkap SPESIFIK satu momen/fakta paling mengejutkan dari PERTENGAHAN/AKHIR cerita (angka/nama/akibat konkret), tanpa menjelaskan sebabnya. BUKAN pertanyaan generik, BUKAN ringkasan topik.",
+    "flashForwardSceneIndex: perkiraan nomor scene (1..N) di paruh kedua cerita yang visualnya paling menggambarkan hook.",
+    "summary: ringkasan 2-3 kalimat. importantPoints: 3-5 poin kunci.",
+    `chapterPlan: TEPAT ${STORY_CHUNK_TARGET_CHAPTERS} bab berurutan, masing-masing { name, focus }. Bab terakhir adalah penutup/kesimpulan.`
+  ].filter(Boolean).join("\n");
+}
+
+/**
+ * Normalisasi daftar bab dari outline AI. Kalau AI mengembalikan sampah,
+ * pakai 8 nama bab bawaan agar pipeline tetap jalan (fail-soft di level bab,
+ * bukan mematikan seluruh run).
+ */
+export function normalizeChapterPlan(raw, input) {
+  const list = (Array.isArray(raw) ? raw : [])
+    .map((c) => ({
+      name: cleanText(c?.name || "", 80),
+      focus: cleanText(c?.focus || "", 240)
+    }))
+    .filter((c) => c.name);
+  if (list.length >= 2) return list.slice(0, 9);
+  console.warn(`[Story Longform] Outline bab tidak valid, memakai ${DEFAULT_CHAPTER_NAMES.length} bab bawaan.`);
+  return DEFAULT_CHAPTER_NAMES.map((name) => ({ name, focus: "" }));
+}
+
+/**
+ * Bagi 1..sceneCount menjadi rentang bab yang berurutan tanpa celah/overlap.
+ */
+export function distributeChapterRanges(sceneCount, chapterCount) {
+  const ranges = [];
+  let start = 1;
+  for (let i = 0; i < chapterCount; i++) {
+    const size = Math.max(1, Math.ceil((sceneCount - start + 1) / (chapterCount - i)));
+    const end = Math.min(sceneCount, start + size - 1);
+    ranges.push({ sceneStart: start, sceneEnd: end });
+    start = end + 1;
+  }
+  return ranges;
+}
+
+/**
+ * Susun spesifikasi tiap scene (index global, tipe dari pola format, bab,
+ * target kata) lalu kelompokkan menjadi segmen-segmen kecil.
+ */
+export function buildSceneSegments(input, chapters) {
+  const pattern = buildScenePattern(input.sceneCount, input.formatType);
+  const words = sceneWordRange(input.sceneCount, input.formatType, input.durationSec);
+  const ranges = distributeChapterRanges(input.sceneCount, chapters.length);
+  const specs = [];
+  ranges.forEach((range, ci) => {
+    for (let index = range.sceneStart; index <= range.sceneEnd; index++) {
+      const sceneType = pattern[index - 1] || "image";
+      specs.push({
+        index,
+        sceneType,
+        chapter: chapters[ci].name,
+        focus: chapters[ci].focus,
+        opensChapter: index === range.sceneStart,
+        wordMin: sceneType === "reaction" ? 0 : sceneType === "summary" ? words.summaryMin : words.imageMin,
+        wordMax: sceneType === "reaction" ? 16 : sceneType === "summary" ? words.summaryMax : words.imageMax
+      });
+    }
+  });
+  const segments = [];
+  for (let i = 0; i < specs.length; i += STORY_CHUNK_MAX_SCENES) {
+    segments.push(specs.slice(i, i + STORY_CHUNK_MAX_SCENES));
+  }
+  return segments;
+}
+
+/**
+ * Prompt untuk satu segmen (<=4 scene). Aturan inti dari prompt raksasa lama
+ * dipadatkan di sini; ukuran prompt boleh besar, yang dibatasi hanya output.
+ */
+export function buildChunkPrompt(input, wiki, segment, prevContext, revisionNote = "") {
+  const viralAngle = getViralAngleById(input.viralAngleId);
+  const openerRule = segment.some((s) => s.opensChapter && s.sceneType !== "reaction")
+    ? "Scene yang MEMBUKA bab baru WAJIB membuka narasi dengan pertanyaan atau ajakan menebak di 1-2 kalimat pertama (jawabannya diungkap bertahap sepanjang bab, bukan di kalimat berikutnya)."
+    : "";
+  const sceneLines = segment.map((spec) => {
+    if (spec.sceneType === "reaction") {
+      return `- Scene ${spec.index} (reaction): SATU kalimat pertanyaan penasaran 8-16 kata, WAJIB diakhiri TANDA TANYA. Contoh: "Tapi benarkah letusan purba ini yang memicu zaman es?". DILARANG mengisi screenText/narasi dengan label seperti "Fakta 1". Tanpa visualKeywords, imagePrompt, visualSegments. Isi reactionCue: heran/kaget/skeptis/menemukan petunjuk/setuju.`;
+    }
+    const tail = spec.sceneType === "summary"
+      ? ` screenText WAJIB "Ringkasan Inti". Narasi berupa kesimpulan yang menutup seluruh video.`
+      : ` screenText SPESIFIK sesuai fakta scene (bukan label generik). Tulis beatPurpose ("menjawab: ...").`;
+    return `- Scene ${spec.index} (${spec.sceneType}, bab "${spec.chapter}"): narasi ${spec.wordMin}-${spec.wordMax} kata.${tail}`;
+  }).join("\n");
+  return [
+    "Tulis naskah SEGMEN video dokumenter horizontal (16:9) Bahasa Indonesia untuk channel BanyakTau. HANYA scene dalam daftar di bawah — jangan menulis scene di luar daftar.",
+    `Topik: ${input.topic}`,
+    `Kategori: ${input.category} | Sudut pandang: ${input.angle}`,
+    `Tone: ${input.tone}`,
+    `Kemasan viral: ${simplifyForLayAudience(input.viralAngleLabel || viralAngle?.label || "", 120)}`,
+    `Fokus bab segmen ini: ${segment.map((s) => `"${s.chapter}"`).filter((v, i, a) => a.indexOf(v) === i).join(", ")}${segment[0].focus ? ` — ${segment[0].focus}` : ""}`,
     "",
-    "JUDUL (cadangan): Buat judul singkat (maksimal 60 karakter), spesifik dengan subjek konkret yang jelas, dan memancing rasa penasaran tanpa terasa template. Judul final akan disempurnakan terpisah, jadi cukup sediakan satu judul layak pakai.",
+    `SEGMEN INI: scene ${segment[0].index}-${segment[segment.length - 1].index} dari total ${input.sceneCount} scene.`,
+    prevContext
+      ? `SUDAH DIBAHAS DI SEGMEN SEBELUM (DILARANG mengulang poin/fakta/angka ini dengan kata lain — tiap scene wajib info BARU):\n${prevContext}`
+      : `Ini segmen PERTAMA: scene 1 harus membuat penonton tidak bisa pergi — fakta mengejutkan yang melawan intuisi, statistik kontroversial, atau pertanyaan spesifik yang harus terjawab. DILARANG membuka dengan "Halo semuanya" atau perkenalan channel.`,
     "",
-    "FIELD 'hook' DALAM JSON (teaser 'flash-forward'):",
-    "Field 'hook' adalah SATU-DUA kalimat teaser pembuka (cold open) sebelum intro. WAJIB gaya 'flash-forward':",
-    "ungkapkan secara SPESIFIK satu momen/fakta paling mengejutkan yang baru terungkap di PERTENGAHAN atau AKHIR cerita",
-    "(bukan pertanyaan generik pembuka, bukan ringkasan topik). Sebutkan detail konkret (angka, nama, akibat) dari",
-    "momen itu sendiri, TAPI jangan langsung menjelaskan sebab/jawabannya — itu tugas isi video, bukan hook.",
-    "WAJIB: maksimal 15-25 kata, kalimat utuh berdiri sendiri, boleh berbentuk pertanyaan ATAU pernyataan tegas.",
-    "Contoh bagus (flash-forward, merujuk fakta spesifik dari tengah/akhir cerita): 'Yang tidak diduga, satu dokumen yang hampir dibuang ini ternyata membalikkan seluruh hasil penyelidikan.' atau 'Bagaimana bisa satu keputusan ini berakhir dengan kerugian satu triliun rupiah dalam semalam?'",
-    "Contoh buruk (setup generik, bukan flash-forward): 'Bayangkan Anda datang ke warung kopi yang selalu penuh. Data antrian menunjukkan waktu tunggu...' (terlalu panjang) atau 'Apa yang membuat topik ini menarik?' (tidak spesifik, tidak merujuk momen konkret).",
-    "Field 'hook' BERBEDA dari narasi scene 1. Scene 1 boleh panjang; field 'hook' HARUS singkat.",
+    "ATURAN BAHASA (WAJIB):",
+    "- Gaya populer dinamis seperti Lemmino/Vox/Veritasium. Sapa penonton dengan 'kamu', bukan 'Anda'.",
+    "- Kalimat pendek-sedang (rata-rata di bawah 20 kata), aktif, hangat. Variasikan pola pembuka kalimat antar scene.",
+    "- Narasi MENGALIR untuk TTS: DILARANG titik koma (;), titik tiga (...), tanda kurung, tanda kutip. Pakai koma/kata sambung.",
+    "- Angka & satuan ditulis dengan kata-kata ('tiga puluh derajat Celcius'). Hindari singkatan/simbol (%, Rp, AI, 3D, &).",
+    "- DILARANG kata: implikasi, mekanisme, signifikan, fundamental, kompleksitas, eksponensial, korelasi, paradigma, esensial, krusial, dinamika.",
+    "- DILARANG membahas fakta elementer/trivia anak SD (definisi kamus, etimologi nama sepele). Penonton dewasa & cerdas.",
+    "- Setiap fakta rumit langsung disusul satu perbandingan sehari-hari yang bisa dibayangkan.",
+    "- Tahun/angka HANYA bila yakin benar; kalau ragu pakai frasa relatif ('awal abad ke-20'). Jangan mengarang angka.",
+    openerRule,
     "",
-    "FIELD 'flashForwardSceneIndex' DALAM JSON:",
-    "Angka index scene (field 'index' di array scenes, BUKAN reaction/summary) yang visualnya paling menggambarkan momen yang diceritakan di 'hook'. Pilih scene dari PARUH KEDUA cerita (sekitar 60-85% posisi), bukan scene 1, karena hook menceritakan sesuatu yang baru terungkap belakangan.",
+    "DAFTAR SCENE SEGMEN INI (ikuti TEPAT nomor, tipe, dan rentang kata):",
+    sceneLines,
     "",
-    "NARASI SCENE 1 (30 DETIK PERTAMA):",
-    "Scene 1 HARUS membuat penonton TIDAK BISA meninggalkan video. Gunakan salah satu teknik hook yang kuat dan relevan:",
-    "  - Fakta mengejutkan yang melawan intuisi, tetapi sebutkan subjeknya secara jelas",
-    "  - Statistik kontroversial dengan sumber jelas",
-    "  - Pertanyaan spesifik yang membuat penonton HARUS tahu jawabannya",
-    "  - Skenario 'bagaimana jika' yang dramatis dan masuk akal",
-    "  - Kontras tajam antara yang dipercaya publik dan bukti yang muncul",
-    "  - Detail kecil yang ternyata membuka masalah besar",
-    "JANGAN PERNAH mulai dengan 'Halo semuanya', 'Selamat datang', atau perkenalan channel.",
-    "Langsung masuk ke inti yang membuat penasaran. Hook menentukan 70% retensi penonton.",
+    "STRUKTUR TIAP SCENE: satu klaim inti + satu bukti/contoh/angka konkret yang mendukungnya.",
     "",
-    `Topik Utama: ${input.topic}`,
-    `Kategori: ${input.category}`,
-    `Sudut Pandang: ${input.angle}`,
-    `Kemasan Viral: ${simplifyForLayAudience(input.viralAngleLabel || viralAngle?.label || input.viralAngleId || "acak", 80)}`,
-    `Tone Narasi: ${input.tone}`,
-    `Durasi Total: ${input.durationSec} detik`,
-    `Jumlah Scene: ${input.sceneCount}`,
-    `Target Jumlah Kata: sekitar ${words.targetWords} kata bahasa Indonesia secara keseluruhan.`,
-    wikiBlock,
-    trendBlock,
+    "VISUAL (scene image/summary saja):",
+    `- visualSegments: TEPAT ${VISUAL_SEGMENT_COUNT} sub-visual berurutan mengikuti alur narasi (awal, tengah-awal, tengah-akhir, akhir). Tiap sub-visual: { imagePrompt, visualKeywords, pexelsQuery, mustMatchTerms, narrativeContext }.`,
+    "- pexelsQuery: frasa Inggris 3-7 kata yang KONKRET (contoh bagus: 'seismograph needle earthquake recording'; contoh terlarang: 'ocean waves aerial'). mustMatchTerms: 1-3 istilah Inggris konkret yang benar-benar disebut di narrativeContext.",
+    "- narrativeContext: 3-8 kata DISALIN PERSIS (verbatim) dari narasi scene itu, urut sesuai kemunculan (sub-visual 1 dari awal narasi ... sub-visual 4 dari akhir).",
+    "- imagePrompt: ilustrasi sinematik 16:9 tanpa teks/tulisan. Rotasikan sudut pandang (peta/satelit, diagram 3D, instrumen/data, arsip/artefak, aksi lapangan); scene pembuka tiap bab tampil beda warna/lokasi/subjek dari bab sebelumnya.",
+    "- spotlight (opsional, hanya untuk fakta kunci): { type:'keypoint'|'figure'|'compare', label (maks 5 kata), sublabel, phrase (4-8 kata disalin persis dari narasi) }.",
+    "- mediaSource (bila relevan dengan berita di bawah): { outlet, headline, url, publishedAt } — JANGAN mengarang sumber.",
+    buildWikiBlock(wiki),
+    trendPromptBlock(input.trend),
+    revisionNote,
     "",
-    "PENTING: pexelsQuery pada setiap visualSegment adalah query utama untuk MENCARI VIDEO STOCK di Pexels. visualKeywords tetap wajib sebagai fallback kompatibilitas.",
-    "ATURAN DIVERSIFIKASI VISUAL & B-ROLL (UNIVERSAL UNTUK SEMUA TOPIK — ANTI-MONOTON):",
-    "  - DILARANG KERAS mengulang jenis subjek/latar visual yang sama lebih dari 2 scene di seluruh naskah video.",
-    "    (Contoh terlarang: jika topik tentang laut jangan tampilkan ombak laut terus-menerus; jika tentang komputer jangan hanya ruang kantor/laptop; jika tentang sejarah jangan hanya lukisan monokrom).",
-    "  - Di setiap bab (chapter), WAJIB merotasi 5 PILAR PERSPEKTIF VISUAL DOKUMENTER berikut secara bergantian sesuai topik:",
-    "    1. PILAR PETA, SKALA MAKRO & LANSKAP KONTEKS:",
-    "       * Geologi/Alam: Peta batimetri dasar samudra, citra satelit resolusi tinggi, jalur patahan lempeng.",
-    "       * Sejarah/Militer: Peta rute pelayaran kuno, peta pergerakan ekspedisi, tata letak benteng/kota.",
-    "       * Teknologi/Industri: Peta jaringan kabel serat optik bawah laut, peta satelit orbit GPS, tata letak megastruktur.",
-    "       * Astronomi: Peta lintasan orbit planet, citra teleskop ruang angkasa, peta konstelasi bintang.",
-    "    2. PILAR DIAGRAM TEKNIS 3D, SKEMA & IRISAN ANATOMI:",
-    "       * Geologi/Bumi: Penampang melintang kerak bumi, kantong dapur magma di mantel bumi, zona patahan tektonik.",
-    "       * Sains/Fisika: Diagram penampang mesin jet turbofan, irisan reaktor nuklir, mekanisme gaya apung hidrostatik.",
-    "       * Biologi/Medis: Penampang melintang organ/sel tubuh, struktur heliks molekul DNA, kristalografi virus.",
-    "       * Teknologi: Skema mikroskopis transistor chip silikon, arsitektur aliran data sistem terdistribusi.",
-    "    3. PILAR INSTRUMEN PENGUKURAN, DATA & LAYAR MONITOR:",
-    "       * Sains/Bumi: Jarum seismograf analog mencatat tremor, sensor buoy tsunami, monitor radar stasiun cuaca/geofisika.",
-    "       * Medis/Kimia: Tampilan mikroskop elektron, jarum osiloskop gelombang frekuensi, monitor EKG, grafik spektrometri massa.",
-    "       * Teknologi/Siber: Layar konsol terminal kode baris hijau/cyan, antarmuka ruang kendali misi (mission control), dashboard telemetri.",
-    "       * Ekonomi/Sosial: Grafik fluktuasi indeks bursa saham, data statistik perbandingan, dokumen register sensus.",
-    "    4. PILAR ARSIP SEJARAH ASLI, MANUSKRIP & ARTEFAK FISIK:",
-    "       * Sejarah/Misteri: Lembaran naskah kuno bersejarah, kliping surat kabar litografi abad ke-19, foto arsip hitam-putih, relief prasasti batu.",
-    "       * Penemuan: Sketsa gambar paten asli penemu, buku catatan jurnal eksperimen laboratorium, prototipe mesin awal.",
-    "       * Alam/Bumi: Lapisan batuan purba (tephra/sedimen), sampel inti bor silinder geologi, fosil terawetkan, batu meteorit.",
-    "    5. PILAR AKSI DINAMIS LAPANGAN, EKSPERIMEN & B-ROLL MANUSIA:",
-    "       * Riset: Ahli sains melakukan uji reaksi kimia di tabung reaksi, arkeolog membersihkan artefak dengan kuas, geolog meneliti tebing batuan.",
-    "       * Operasional Nyata: Lengan robot perakitan pabrik otomasi, teknisi di ruang server atau menara transmisi, kapal riset beroperasi di laut lepas.",
-    "       * Simulasi/Uji Coba: Pengujian aerodinamika terowongan angin, simulasi permodelan komputer, tim evakuasi darurat.",
-    "  - pexelsQuery dan visualKeywords HARUS KONKRET, SPESIFIK, dan LANGSUNG MENGACU pada instrumen, data, atau aksi yang dibahas di narasi scene:",
-    "    * Contoh BAGUS: 'seismograph needle earthquake recording', 'microscope cells laboratory analysis', 'jet engine turbine cross section', 'ancient parchment manuscript map', 'satellite earth radar display', 'computer server room technician', 'geologist inspecting rock cliff'.",
-    "    * Contoh BURUK & TERLARANG: 'ocean waves aerial' (generik), 'water surface' (membosankan), 'modern office meeting' (clutter), 'abstract technology' (tidak bermakna).",
-    "  - mustMatchTerms WAJIB berupa kata benda teknis/objek konkret yang benar-benar ada di narrativeContext (misal: ['seismograph'], ['turbine'], ['microscope'], ['satellite'], ['manuscript'], ['chip'], ['drill'], ['radar']), BUKAN kata umum filler.",
-    "FALLBACK IMAGE PROMPT (imagePrompt) untuk scene image/summary wajib menggambarkan ilustrasi 16:9 sinematik yang artistik tanpa teks/tulisan di dalamnya.",
-    "",
-    "VISUAL SEGMENTS (WAJIB untuk scene image/summary, TIDAK untuk reaction):",
-    "Durasi tiap scene mengikuti panjang narasinya. Siapkan beberapa gambar/video yang berganti sesuai alur narasi.",
-    `Setiap scene image/summary WAJIB punya array 'visualSegments' berisi TEPAT ${VISUAL_SEGMENT_COUNT} sub-visual berurutan.`,
-    "Pergantian sub-visual mengikuti kalimat narasi; sisipkan detail, sumber dalam mockup, dan spotlight yang relevan agar adegan panjang tetap hidup.",
-    "Keempat sub-visual itu HARUS membentuk PROGRESI VISUAL yang mengikuti seluruh urutan narasi scene:",
-    "  - Sub-visual 1 = apa yang terlihat saat kalimat pembuka scene dibacakan.",
-    "  - Sub-visual 2 = bukti/detail pertama di bagian tengah awal.",
-    "  - Sub-visual 3 = perkembangan/konflik/data di bagian tengah akhir.",
-    "  - Sub-visual 4 = penutup/akibat/kesimpulan bagian akhir narasi scene.",
-    "KONTINUITAS: keempat sub-visual harus terasa seperti satu rangkaian cerita — subjek utama, lokasi, atau objek kunci yang sama berlanjut antar sub-visual (berubah sudut pandang, jarak, atau momen), BUKAN 4 gambar acak yang tidak berhubungan.",
-    "Setiap sub-visual menggambarkan APA yang harus TERLIHAT di layar saat bagian narasi itu dibacakan.",
-    "narrativeContext (SANGAT PENTING untuk sinkronisasi): WAJIB berupa potongan frasa 3-8 kata yang DISALIN PERSIS (verbatim) dari teks narration scene itu, sesuai urutan kemunculannya. Sistem memakai frasa ini untuk mengganti gambar TEPAT saat frasa itu diucapkan oleh narator. Jangan memparafrase, jangan menerjemahkan, jangan mengarang frasa yang tidak ada di narration.",
-    "  - narrativeContext sub-visual 1 diambil dari bagian AWAL narration, sub-visual 2-3 dari bagian TENGAH, sub-visual 4 dari bagian AKHIR, tanpa saling mendahului.",
-    "Setiap sub-visual juga WAJIB punya pexelsQuery dan mustMatchTerms untuk pencarian stock video:",
-    "  - pexelsQuery: satu frasa pencarian stock dalam bahasa Inggris, konkret, idealnya 3-7 kata.",
-    "  - mustMatchTerms: array berisi 1-3 istilah subjek bahasa Inggris yang wajib tampak relevan pada hasil.",
-    "  - mustMatchTerms WAJIB berupa terjemahan Inggris dari benda/pelaku yang BENAR-BENAR disebut di narrativeContext sub-visual itu. Kalau frasanya berbunyi 'rongga udara di dalam lambung', mustMatchTerms-nya ['ship', 'hull'], bukan ['ocean'].",
-    "  - Jangan isi pexelsQuery dengan konsep abstrak atau kata generik seperti 'documentary footage'.",
-    "Contoh scene tentang 'cermin lift untuk aksesibilitas' (perhatikan progresi + kontinuitas subjek lift; narrativeContext di contoh ini adalah frasa yang memang muncul verbatim di narration scene-nya):",
-    "  visualSegments: [",
-    "    { imagePrompt: 'wheelchair user approaching modern elevator, horizontal cinematic', visualKeywords: 'wheelchair elevator entrance', pexelsQuery: 'wheelchair user entering elevator', mustMatchTerms: ['wheelchair', 'elevator'], narrativeContext: 'cermin membantu pengguna kursi roda' },",
-    "    { imagePrompt: 'wheelchair user inside elevator facing mirror, medium shot', visualKeywords: 'wheelchair inside elevator mirror', pexelsQuery: 'wheelchair user inside elevator', mustMatchTerms: ['wheelchair', 'elevator'], narrativeContext: 'posisi masuk tanpa bisa berbalik' },",
-    "    { imagePrompt: 'elevator mirror reflection showing buttons panel, close up', visualKeywords: 'elevator buttons panel mirror', pexelsQuery: 'elevator mirror buttons panel', mustMatchTerms: ['elevator', 'buttons'], narrativeContext: 'melihat tombol lewat pantulan cermin' },",
-    "    { imagePrompt: 'modern accessible elevator interior wide angle', visualKeywords: 'modern elevator interior design', pexelsQuery: 'modern accessible elevator interior', mustMatchTerms: ['elevator'], narrativeContext: 'standar aksesibilitas internasional' }",
-    "  ]",
-    "Setiap sub-visual HARUS relevan dengan bagian narasi yang sedang dibacakan saat itu.",
-    "Field visualKeywords dan imagePrompt di level scene tetap wajib diisi sebagai fallback.",
-    "",
-    "CHAPTER THUMBNAIL DIVERSITY (WAJIB):",
-    "Setiap kali scene memulai chapter baru (field 'chapter' berbeda dari scene sebelumnya), imagePrompt scene itu HARUS:",
-    "  - Menampilkan WARNA DOMINAN yang berbeda dari chapter sebelumnya (mis. biru → oranye → hijau → merah → kuning).",
-    "  - Menampilkan LOKASI atau SETTING yang berbeda (mis. ruang sidang → pantai → kota → hutan → laboratorium).",
-    "  - Menampilkan SUBJEK UTAMA yang berbeda (bukan hanya sudut pandang berbeda dari objek yang sama).",
-    "Tujuannya: YouTube mengambil frame pertama tiap chapter sebagai thumbnail chapter. Jika semua chapter opener terlihat sama (tone gelap, stock footage serupa), semua thumbnail chapter akan identik dan membingungkan penonton.",
-    "Pastikan imagePrompt dan visualSegments[0].imagePrompt dari chapter opener secara visual mencolok berbeda dari chapter opener sebelumnya."
-  ].join("\n");
+    "Kembalikan JSON valid SAJA: { scenes:[{ index, sceneType, narration, screenText, visualKeywords, imagePrompt, visualSegments, chapter, beatPurpose, reactionCue, spotlight, mediaSource }] }"
+  ].filter(Boolean).join("\n");
+}
+
+/**
+ * Ringkas narasi segmen yang sudah selesai menjadi konteks anti-pengulangan
+ * untuk segmen berikutnya (dihitung lokal, tanpa request AI tambahan).
+ */
+export function condenseSegmentContext(segScenes, maxChars = 900) {
+  const text = (segScenes || [])
+    .filter((s) => s && s.sceneType !== "reaction")
+    .map((s) => {
+      const sentences = String(s.narration || "").match(/.*?[.!?]+(?=\s+|$)/gs) || [];
+      const short = sentences.slice(0, 2).join(" ").trim() || String(s.narration || "").slice(0, 160);
+      return `Scene ${s.index} (${s.chapter || "?"}): ${cleanText(short, 220)}`;
+    })
+    .join("\n");
+  return text.slice(-maxChars);
+}
+
+/**
+ * Minta satu segmen ke story API dengan revisi panjang per-segmen
+ * (menggantikan revision loop global yang me-request seluruh naskah sekaligus).
+ * Melempar bila segmen gagal setelah MAX_NARRATION_REVISION_ATTEMPTS percobaan
+ * -> ditangkap createLongformDraft -> fallback offline (kontrak lama).
+ */
+export async function requestChunkScenes(input, wiki, segment, prevContext, requestFn = requestKnowledgeJson, onPrompt = null) {
+  const segLabel = `scene ${segment[0].index}-${segment[segment.length - 1].index}`;
+  const minWords = segment.reduce((sum, spec) => sum + spec.wordMin, 0);
+  let lastWords = 0;
+  let lastError = null;
+  for (let attempt = 1; attempt <= MAX_NARRATION_REVISION_ATTEMPTS; attempt++) {
+    try {
+      const revisionNote = attempt > 1 ? [
+        "",
+        "REVISI WAJIB:",
+        `Percobaan revisi ${attempt}/${MAX_NARRATION_REVISION_ATTEMPTS}. Segmen sebelumnya hanya ${lastWords} kata (minimal ${minWords} kata narasi).`,
+        "Tulis ulang segmen ini lebih panjang. Setiap scene image/summary WAJIB mencapai batas bawah kata yang diminta. Jangan mengembalikan segmen sebelum minimum tercapai."
+      ].join("\n") : "";
+      const prompt = buildChunkPrompt(input, wiki, segment, prevContext, revisionNote);
+      if (typeof onPrompt === "function") onPrompt(prompt);
+      const result = await requestFn(prompt);
+      const byIndex = new Map(
+        (Array.isArray(result?.scenes) ? result.scenes : []).map((s) => [Number(s?.index), s])
+      );
+      const missing = segment.filter((spec) => {
+        const s = byIndex.get(spec.index);
+        return !s || !String(s?.narration || "").trim();
+      });
+      if (missing.length) {
+        throw new Error(`AI tidak mengembalikan scene ${missing.map((m) => m.index).join(", ")}.`);
+      }
+      lastWords = segment.reduce((sum, spec) => {
+        if (spec.sceneType === "reaction") return sum;
+        return sum + String(byIndex.get(spec.index)?.narration || "").split(/\s+/).filter(Boolean).length;
+      }, 0);
+      if (lastWords < minWords) {
+        console.warn(`[Story Longform] Segmen ${segLabel} terlalu pendek (${lastWords} < ${minWords} kata), revisi ${attempt}/${MAX_NARRATION_REVISION_ATTEMPTS}...`);
+        continue;
+      }
+      return segment.map((spec) => ({
+        ...byIndex.get(spec.index),
+        index: spec.index,
+        sceneType: spec.sceneType,
+        chapter: spec.chapter
+      }));
+    } catch (error) {
+      lastError = error;
+      console.warn(`[Story Longform] Segmen ${segLabel} percobaan ${attempt}/${MAX_NARRATION_REVISION_ATTEMPTS} gagal: ${error.message}`);
+    }
+  }
+  throw new Error(`Segmen ${segLabel} gagal setelah ${MAX_NARRATION_REVISION_ATTEMPTS} percobaan: ${lastError?.message || "unknown"}`);
+}
+
+/**
+ * Orkestrasi chunking: outline -> segmen per bab -> gabung jadi satu plan
+ * mentah (format SAMA seperti output request raksasa dulu).
+ * @returns {Promise<{plan: object, promptText: string}>}
+ */
+export async function requestChunkedPlan(input, wiki, requestFn = requestKnowledgeJson) {
+  const prompts = [];
+  console.log(`[Story Longform] Meminta outline ${input.sceneCount} scene untuk topik: "${input.topic}"...`);
+  const outlinePrompt = buildOutlinePrompt(input, wiki);
+  prompts.push(outlinePrompt);
+  const outline = await requestFn(outlinePrompt);
+  const chapters = normalizeChapterPlan(outline?.chapterPlan, input);
+  const segments = buildSceneSegments(input, chapters);
+  console.log(`[Story Longform] Outline OK (${chapters.length} bab). Meminta naskah dalam ${segments.length} segmen kecil...`);
+
+  const allScenes = [];
+  const contextParts = [];
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    const segLabel = `segmen ${i + 1}/${segments.length} (scene ${seg[0].index}-${seg[seg.length - 1].index})`;
+    const prevContext = contextParts.join("\n").slice(-1500);
+    const segScenes = await requestChunkScenes(input, wiki, seg, prevContext, requestFn, (p) => prompts.push(p));
+    allScenes.push(...segScenes);
+    contextParts.push(condenseSegmentContext(segScenes));
+    const segWords = segScenes
+      .filter((s) => s.sceneType !== "reaction")
+      .reduce((sum, s) => sum + String(s.narration || "").split(/\s+/).filter(Boolean).length, 0);
+    console.log(`[Story Longform] ${segLabel} OK (${segWords} kata).`);
+  }
+
+  return {
+    plan: {
+      title: outline?.title,
+      hook: outline?.hook,
+      flashForwardSceneIndex: outline?.flashForwardSceneIndex,
+      summary: outline?.summary,
+      importantPoints: outline?.importantPoints,
+      factCheckNote: outline?.factCheckNote,
+      scenes: allScenes
+    },
+    promptText: prompts.join("\n\n")
+  };
 }
 
 function normalizeMediaSource(value, narration, trend) {

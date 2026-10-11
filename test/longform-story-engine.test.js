@@ -6,9 +6,17 @@ import assert from "node:assert/strict";
 import { config, paths } from "../src/config.js";
 import {
   assertNarrationLongEnough,
+  buildChunkPrompt,
   buildLongformStoryboard,
+  buildOutlinePrompt,
+  buildSceneSegments,
+  condenseSegmentContext,
   createLongformDraft,
-  normalizeVisualSegments
+  distributeChapterRanges,
+  normalizeChapterPlan,
+  normalizeVisualSegments,
+  requestChunkedPlan,
+  requestChunkScenes
 } from "../src/longform-story-engine.js";
 import { headlineCardForScene, writeContentCaptionAss } from "../src/longform-render.js";
 import { scorePexelsCandidate } from "../src/pexels.js";
@@ -529,14 +537,17 @@ test("normalizer dan scorer menjaga identitas subjek query panjang", () => {
 
 test("fallback offline sebenarnya tidak meneruskan keyword generik ke Pexels", async (t) => {
   const originalApiKey = config.openai.apiKey;
+  const originalStoryKey = config.story.apiKey;
   const originalGeneratedDir = paths.generatedDir;
   const temporaryGeneratedDir = await fs.mkdtemp(path.join(os.tmpdir(), "yt-longform-story-"));
   t.after(async () => {
     config.openai.apiKey = originalApiKey;
+    config.story.apiKey = originalStoryKey;
     paths.generatedDir = originalGeneratedDir;
     await fs.rm(temporaryGeneratedDir, { recursive: true, force: true });
   });
   config.openai.apiKey = "";
+  config.story.apiKey = "";
   paths.generatedDir = temporaryGeneratedDir;
 
   const draft = await createLongformDraft({
@@ -559,14 +570,17 @@ test("fallback offline sebenarnya tidak meneruskan keyword generik ke Pexels", a
 
 test("flashForwardSceneIndex merujuk scene image/summary valid di paruh kedua cerita", async (t) => {
   const originalApiKey = config.openai.apiKey;
+  const originalStoryKey = config.story.apiKey;
   const originalGeneratedDir = paths.generatedDir;
   const temporaryGeneratedDir = await fs.mkdtemp(path.join(os.tmpdir(), "yt-longform-flashforward-"));
   t.after(async () => {
     config.openai.apiKey = originalApiKey;
+    config.story.apiKey = originalStoryKey;
     paths.generatedDir = originalGeneratedDir;
     await fs.rm(temporaryGeneratedDir, { recursive: true, force: true });
   });
   config.openai.apiKey = "";
+  config.story.apiKey = "";
   paths.generatedDir = temporaryGeneratedDir;
 
   const draft = await createLongformDraft({
@@ -615,14 +629,17 @@ test("longformStoryboard mempertahankan intent Pexels per segmen", () => {
 
 test("scene reaction selalu berupa pertanyaan penasaran berakhiran tanda tanya dan bebas dari placeholder generik", async (t) => {
   const originalApiKey = config.openai.apiKey;
+  const originalStoryKey = config.story.apiKey;
   const originalGeneratedDir = paths.generatedDir;
   const temporaryGeneratedDir = await fs.mkdtemp(path.join(os.tmpdir(), "yt-longform-reaction-"));
   t.after(async () => {
     config.openai.apiKey = originalApiKey;
+    config.story.apiKey = originalStoryKey;
     paths.generatedDir = originalGeneratedDir;
     await fs.rm(temporaryGeneratedDir, { recursive: true, force: true });
   });
   config.openai.apiKey = "";
+  config.story.apiKey = "";
   paths.generatedDir = temporaryGeneratedDir;
 
   const draft = await createLongformDraft({
@@ -689,3 +706,167 @@ test("assertNarrationLongEnough: mewajibkan ambang penuh ketika durationLocked f
   });
 });
 
+
+// ============================================================================
+// Story chunking (request naskah per segmen kecil, bukan sekaligus)
+// ============================================================================
+
+const chunkTestInput = {
+  topic: "Danau Toba: Supervolcano Raksasa Indonesia",
+  category: "sains",
+  angle: "asal-usul yang jarang diketahui",
+  formatType: "dokumenter_klasik",
+  viralAngleId: "",
+  viralAngleLabel: "",
+  tone: "narrator, serius tapi menarik",
+  durationSec: 900,
+  sceneCount: 20,
+  trend: null
+};
+
+function stubScene(index, sceneType, chapter, wordCount) {
+  const narration = sceneType === "reaction"
+    ? "Tapi benarkah dampaknya sebesar itu?"
+    : Array.from({ length: wordCount }, (_, i) => `kata${i}`).join(" ");
+  return {
+    index,
+    sceneType,
+    narration,
+    screenText: sceneType === "summary" ? "Ringkasan Inti" : `Bagian ${index}`,
+    visualKeywords: sceneType === "reaction" ? "" : "danau toba kaldera",
+    imagePrompt: sceneType === "reaction" ? "" : "danau toba cinematic",
+    visualSegments: [],
+    chapter,
+    beatPurpose: "menjawab: test",
+    reactionCue: sceneType === "reaction" ? "heran" : ""
+  };
+}
+
+test("distributeChapterRanges: rentang berurutan tanpa celah/overlap", () => {
+  const ranges = distributeChapterRanges(20, 8);
+  assert.equal(ranges.length, 8);
+  assert.equal(ranges[0].sceneStart, 1);
+  assert.equal(ranges[7].sceneEnd, 20);
+  for (let i = 1; i < ranges.length; i++) {
+    assert.equal(ranges[i].sceneStart, ranges[i - 1].sceneEnd + 1);
+  }
+  const covered = ranges.reduce((n, r) => n + (r.sceneEnd - r.sceneStart + 1), 0);
+  assert.equal(covered, 20);
+});
+
+test("normalizeChapterPlan: outline sampah -> 8 bab bawaan", () => {
+  const chapters = normalizeChapterPlan([{ nama: "salah" }, null], chunkTestInput);
+  assert.equal(chapters.length, 8);
+  assert.ok(chapters.every((c) => c.name));
+});
+
+test("normalizeChapterPlan: daftar valid dipertahankan", () => {
+  const raw = [
+    { name: "Awal Mula", focus: "pembentukan kaldera" },
+    { name: "Letusan", focus: "hari kehancuran" },
+    { name: "Penutup", focus: "pelajaran" }
+  ];
+  const chapters = normalizeChapterPlan(raw, chunkTestInput);
+  assert.equal(chapters.length, 3);
+  assert.equal(chapters[0].name, "Awal Mula");
+});
+
+test("buildSceneSegments: 20 scene -> 5 segmen @<=4 scene, index 1..20 tepat sekali", () => {
+  const chapters = normalizeChapterPlan(null, chunkTestInput);
+  const segments = buildSceneSegments(chunkTestInput, chapters);
+  assert.equal(segments.length, 5);
+  assert.ok(segments.every((s) => s.length <= 4));
+  const indices = segments.flat().map((s) => s.index);
+  assert.deepEqual(indices, Array.from({ length: 20 }, (_, i) => i + 1));
+  // Scene terakhir wajib summary, pola reaction tiap kelipatan 3
+  const last = segments.flat().at(-1);
+  assert.equal(last.sceneType, "summary");
+  assert.ok(last.wordMin > 0);
+  const third = segments.flat().find((s) => s.index === 3);
+  assert.equal(third.sceneType, "reaction");
+  // Flag pembuka bab
+  const openers = segments.flat().filter((s) => s.opensChapter);
+  assert.equal(openers.length, 8);
+});
+
+test("buildOutlinePrompt & buildChunkPrompt: memuat target kata per scene", () => {
+  const outline = buildOutlinePrompt(chunkTestInput, null);
+  assert.ok(outline.includes("20 scene"));
+  assert.ok(outline.includes("chapterPlan"));
+  const chapters = normalizeChapterPlan(null, chunkTestInput);
+  const segments = buildSceneSegments(chunkTestInput, chapters);
+  const prompt = buildChunkPrompt(chunkTestInput, null, segments[0], "", "");
+  assert.ok(prompt.includes("Scene 1"));
+  assert.ok(prompt.includes("narasi"));
+  assert.ok(prompt.includes("JSON valid SAJA"));
+  assert.ok(prompt.includes("narrativeContext"));
+});
+
+test("condenseSegmentContext: meringkas tanpa scene reaction", () => {
+  const scenes = [
+    stubScene(1, "image", "Pembuka", 80),
+    stubScene(2, "reaction", "Pembuka", 0),
+    stubScene(3, "image", "Pembuka", 80)
+  ];
+  const ctx = condenseSegmentContext(scenes);
+  assert.ok(ctx.includes("Scene 1"));
+  assert.ok(ctx.includes("Scene 3"));
+  assert.ok(!ctx.includes("Scene 2"));
+});
+
+test("requestChunkedPlan: stub sukses menggabung semua scene berurutan", async () => {
+  const chapters = normalizeChapterPlan(null, chunkTestInput);
+  const segments = buildSceneSegments(chunkTestInput, chapters);
+  const stub = async (prompt) => {
+    if (prompt.includes("KERANGKA")) {
+      return {
+        title: "Judul Outline",
+        hook: "Hook outline?",
+        summary: "Ringkasan.",
+        importantPoints: ["p1"],
+        factCheckNote: "cek",
+        chapterPlan: chapters.map((c) => ({ name: c.name, focus: c.focus }))
+      };
+    }
+    // Ambil segmen berikutnya berdasarkan jumlah scene yang sudah diminta
+    stub.calls = (stub.calls || 0) + 1;
+    const seg = segments[stub.calls - 1];
+    return { scenes: seg.map((spec) => stubScene(spec.index, spec.sceneType, spec.chapter, spec.wordMin + 5)) };
+  };
+  const { plan, promptText } = await requestChunkedPlan(chunkTestInput, null, stub);
+  assert.equal(plan.scenes.length, 20);
+  assert.deepEqual(plan.scenes.map((s) => s.index), Array.from({ length: 20 }, (_, i) => i + 1));
+  assert.equal(plan.title, "Judul Outline");
+  assert.equal(plan.scenes.at(-1).sceneType, "summary");
+  assert.ok(promptText.length > 1000, "promptText terkumpul untuk estimasi biaya");
+});
+
+test("requestChunkScenes: revisi otomatis bila segmen terlalu pendek", async () => {
+  const chapters = normalizeChapterPlan(null, chunkTestInput);
+  const segments = buildSceneSegments(chunkTestInput, chapters);
+  const seg = segments[0].filter((s) => s.sceneType !== "reaction");
+  let calls = 0;
+  const stub = async () => {
+    calls++;
+    const words = calls === 1 ? 5 : seg[0].wordMin + 5; // percobaan 1: terlalu pendek
+    return { scenes: seg.map((spec) => stubScene(spec.index, spec.sceneType, spec.chapter, spec.sceneType === "reaction" ? 0 : words)) };
+  };
+  const scenes = await requestChunkScenes(chunkTestInput, null, seg, "", stub);
+  assert.equal(calls, 2);
+  assert.equal(scenes.length, seg.length);
+});
+
+test("requestChunkScenes: melempar setelah 3x gagal (kontrak fallback offline)", async () => {
+  const chapters = normalizeChapterPlan(null, chunkTestInput);
+  const segments = buildSceneSegments(chunkTestInput, chapters);
+  const stub = async () => { throw new Error("OpenAI tidak merespons dalam 180s: completions"); };
+  await assert.rejects(
+    () => requestChunkScenes(chunkTestInput, null, segments[0], "", stub),
+    /gagal setelah 3 percobaan/
+  );
+});
+
+test("requestChunkedPlan: outline gagal -> melempar (ditangkap jadi fallback offline)", async () => {
+  const stub = async () => { throw new Error("OpenAI tidak merespons dalam 180s: completions"); };
+  await assert.rejects(() => requestChunkedPlan(chunkTestInput, null, stub), /tidak merespons/);
+});

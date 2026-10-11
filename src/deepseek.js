@@ -1,7 +1,8 @@
 import { config } from "./config.js";
 import {
   requestIdeaJson as requestOpenAiIdeaJson,
-  requestKnowledgeJson as requestOpenAiKnowledgeJson
+  requestKnowledgeJson as requestOpenAiKnowledgeJson,
+  storyApiKey
 } from "./openai.js";
 
 function parseEnvelope(text) {
@@ -105,17 +106,19 @@ async function requestWithFallback(promptText, options) {
     }
   }
 
-  if (config.openai.apiKey) {
+  // FROMMUSE: fallback story memakai kunci story (Hermes/9Router) bila ada,
+  // bukan hanya OPENAI_API_KEY.
+  if (storyApiKey()) {
     try {
       const data = await options.openAi(promptText);
       if (options.validate && !options.validate(data)) {
         throw new Error("Respons JSON tidak memiliki data yang bisa dipakai.");
       }
-      console.log(`[AI] ${options.label}: fallback OpenAI aktif (${config.openai.storyModel}).`);
-      return { data, provider: "openai" };
+      console.log(`[AI] ${options.label}: fallback story aktif (${config.story.model}).`);
+      return { data, provider: "story" };
     } catch (error) {
-      errors.push(`OpenAI: ${error.message}`);
-      console.warn(`[AI] ${options.label}: OpenAI fallback gagal: ${error.message}`);
+      errors.push(`Story: ${error.message}`);
+      console.warn(`[AI] ${options.label}: story fallback gagal: ${error.message}`);
     }
   }
 
