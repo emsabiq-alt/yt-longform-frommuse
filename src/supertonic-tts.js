@@ -34,7 +34,13 @@ export async function generateSupertonicSpeech({
   voice,
   filenameSuffix = "supertonic",
 }) {
-  const v = voice || config.supertonic?.voice || "M2";
+  // Pipeline meneruskan options.voice generik (mis. "nova" bawaan OpenAI) yang
+  // bukan kode voice Supertonic. Hanya pakai voice yang diteruskan bila cocok
+  // pola kode Supertonic (M1..M5/F1..F5); selain itu pakai default config
+  // (SUPERTONIC_VOICE, mis. F2) agar tidak pernah melempar "Voice style not found".
+  const v = /^[MF][1-5]$/i.test(String(voice || "").trim())
+    ? String(voice).trim().toUpperCase()
+    : (config.supertonic?.voice || "M2");
   const clean = String(text || "").trim();
   if (!clean) throw new Error("Supertonic TTS: teks kosong.");
 
