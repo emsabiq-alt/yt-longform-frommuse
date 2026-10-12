@@ -24,10 +24,17 @@ export async function runPreflight() {
   checks.push(checkOptional("WIKIMEDIA_MEDIA", Boolean(config.wikimedia?.enabled), "Wikimedia Commons aktif tanpa API key sebagai fallback media berlisensi aman."));
   checks.push(checkOptional("GOOGLE_CSE_KEY", Boolean((config.googleSearch?.apiKey && config.googleSearch?.cx) || config.serper?.apiKey), "Google Images API aktif untuk mengambil gambar berita mockup secara resmi via Google Image Search."));
   checks.push(checkOptional("YOUTUBE_DATA_API_KEY", Boolean(config.youtube?.dataApiKey), "Trending topic engine butuh key ini. Tanpa key, topik dipilih tanpa sinyal trending."));
-  checks.push(checkValue("PUBLIC_BASE_URL", Boolean(config.publicBaseUrl || process.env.PUBLIC_BASE_URL), "Butuh base URL publik untuk preview asset dan upload YouTube fetchable."));
+  // PUBLIC_BASE_URL hanya wajib bila YouTube upload aktif (pelajaran 12 Okt 2026)
+  if (config.youtube.enabled) {
+    checks.push(checkValue("PUBLIC_BASE_URL", Boolean(config.publicBaseUrl || process.env.PUBLIC_BASE_URL), "Butuh base URL publik untuk preview asset dan upload YouTube fetchable."));
+  } else {
+    checks.push(checkOptional("PUBLIC_BASE_URL", Boolean(config.publicBaseUrl || process.env.PUBLIC_BASE_URL), "Opsional untuk run lokal tanpa upload YouTube."));
+  }
 
   const remote = remoteConfig();
-  checks.push(checkValue("UPLOAD_DRIVER", remoteEnabled(), `Driver aktif: ${remote.driver}`));
+  // UPLOAD_DRIVER=none valid untuk run lokal tanpa upload remote (pelajaran 12 Okt 2026)
+  const driverOk = remote.driver === "none" || remoteEnabled();
+  checks.push(checkValue("UPLOAD_DRIVER", driverOk, `Driver aktif: ${remote.driver}`));
   if (remoteEnabled()) {
     checks.push(checkValue(`${remote.prefix}_HOST`, Boolean(remote.host), "Host upload remote wajib ada."));
     checks.push(checkValue(`${remote.prefix}_USER`, Boolean(remote.user), "User upload remote wajib ada."));
