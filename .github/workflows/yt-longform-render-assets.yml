@@ -49,18 +49,17 @@ jobs:
           import path from 'node:path';
           import { execSync } from 'node:child_process';
           const item = JSON.parse(fs.readFileSync('item.json', 'utf8'));
-          // simpan ke data/items.json
-          let db = {};
-          try { db = JSON.parse(fs.readFileSync('data/items.json', 'utf8')); } catch {}
-          const items = Array.isArray(db) ? db : (db.items || {});
-          if (Array.isArray(items)) {
-            const i = items.findIndex(x => x.id === item.id);
-            if (i >= 0) items[i] = item; else items.push(item);
-            fs.writeFileSync('data/items.json', JSON.stringify(items));
-          } else {
-            items[item.id] = item;
-            fs.writeFileSync('data/items.json', JSON.stringify({ items }));
-          }
+          // simpan ke data/items.json (format: array)
+          let items = [];
+          try {
+            const raw = fs.readFileSync('data/items.json', 'utf8');
+            const db = JSON.parse(raw);
+            items = Array.isArray(db) ? db : (Array.isArray(db.items) ? db.items : Object.values(db.items || {}));
+          } catch {}
+          const idx = items.findIndex(x => x && x.id === item.id);
+          if (idx >= 0) items[idx] = item; else items.push(item);
+          fs.mkdirSync('data', { recursive: true });
+          fs.writeFileSync('data/items.json', JSON.stringify(items));
           console.log('Item restored:', item.id);
           // download klip video dari URL
           const assets = item.assets || {};
@@ -81,7 +80,7 @@ jobs:
           "
       
       - name: Render video
-        run: npm run rerender -- --id=${{ inputs.item_id }} 2>&1 | tail -20
+        run: npm run rerender -- --id=${{ inputs.item_id }}
 
       - name: Upload to YouTube
         if: inputs.upload_youtube == 'true'
