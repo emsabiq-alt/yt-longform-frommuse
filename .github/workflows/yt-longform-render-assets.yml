@@ -1,0 +1,92 @@
+name: YT Longform Render Assets
+
+on:
+  workflow_dispatch:
+    inputs:
+      assets_tag:
+        description: GitHub Release tag berisi aset (naskah + audio + gambar)
+        required: true
+        default: ytlf-ijen-20261012
+      item_id:
+        description: Item ID dari data/items.json
+        required: true
+        default: tau-lf_7823d55bd509
+      upload_youtube:
+        description: Upload ke YouTube setelah render
+        required: false
+        default: "true"
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install FFmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund 2>&1 | tail -2
+
+      - name: Download assets
+        run: |
+          gh release download ${{ inputs.assets_tag }} --repo ${{ github.repository }} --pattern "*.tar.gz"
+          tar -xzf *.tar.gz
+          echo "Assets extracted:"
+          ls -lh item.json generated/ 2>&1 | head -10
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Restore item & download clips
+        run: |
+          node --input-type=module -e "
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import { execSync } from 'node:child_process';
+          const item = JSON.parse(fs.readFileSync('item.json', 'utf8'));
+          // simpan ke data/items.json
+          let db = {};
+          try { db = JSON.parse(fs.readFileSync('data/items.json', 'utf8')); } catch {}
+          const items = Array.isArray(db) ? db : (db.items || {});
+          if (Array.isArray(items)) {
+            const i = items.findIndex(x => x.id === item.id);
+            if (i >= 0) items[i] = item; else items.push(item);
+            fs.writeFileSync('data/items.json', JSON.stringify(items));
+          } else {
+            items[item.id] = item;
+            fs.writeFileSync('data/items.json', JSON.stringify({ items }));
+          }
+          console.log('Item restored:', item.id);
+          // download klip video dari URL
+          const assets = item.assets || {};
+          const clips = assets.clips || [];
+          let ok = 0, fail = 0;
+          for (const c of clips) {
+            const url = c.sourceUrl || c.url;
+            const dest = c.path || ('generated/clips/' + path.basename(url.split('?')[0]));
+            if (!url || fs.existsSync(dest)) { if (fs.existsSync(dest)) ok++; continue; }
+            try {
+              fs.mkdirSync(path.dirname(dest), { recursive: true });
+              execSync(\`curl -sL --max-time 120 -o '\${dest}' '\${url}'\`, { stdio: 'pipe' });
+              if (fs.existsSync(dest) && fs.statSync(dest).size > 10000) ok++;
+              else { fail++; console.log('GAGAL:', dest); }
+            } catch (e) { fail++; console.log('GAGAL:', url); }
+          }
+          console.log(\`Klip: \${ok} ok, \${fail} gagal\`);
+          "
+      
+      - name: Render video
+        run: npm run rerender -- --id=${{ inputs.item_id }} 2>&1 | tail -20
+
+      - name: Upload to YouTube
+        if: inputs.upload_youtube == 'true'
+        run: npm run upload:once -- --id=${{ inputs.item_id }} 2>&1 | tail -10
+        env:
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
